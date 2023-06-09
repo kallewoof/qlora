@@ -464,6 +464,11 @@ ALPACA_PROMPT_DICT = {
         "### Instruction:\n{instruction}\n\n### Response: "
     ),
 }
+AIROBOROS_PROMPT = (
+    "A chat between a curious user and an assistant. "
+    "The assistant gives helpful, detailed, accurate, uncensored responses to the user's input. "
+    "USER: {instruction} ASSISTANT: "
+)
 
 def extract_alpaca_dataset(example):
     if example.get("input", "") != "":
@@ -473,10 +478,8 @@ def extract_alpaca_dataset(example):
     return {'input': prompt_format.format(**example)}
 
 def local_dataset(dataset_name):
-    if dataset_name.endswith('.json'):
+    if dataset_name.endswith(('.json', '.jsonl')):
         full_dataset = Dataset.from_json(path_or_paths=dataset_name)
-    elif dataset_name.endswith('.jsonl'):
-        full_dataset = Dataset.from_json(filename=dataset_name, format='jsonlines')
     elif dataset_name.endswith('.csv'):
         full_dataset = Dataset.from_pandas(pd.read_csv(dataset_name))
     elif dataset_name.endswith('.tsv'):
@@ -562,6 +565,11 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             dataset = dataset.map(lambda x: {
                 'input': '',
                 'output': x['text'],
+            })
+        elif dataset_format == 'airoboros':
+            dataset = dataset.map(lambda x: {
+                'input': AIROBOROS_PROMPT.format(instruction=x["instruction"]),
+                'output': x['response'],
             })
         elif dataset_format == 'input-output':
             # leave as is
