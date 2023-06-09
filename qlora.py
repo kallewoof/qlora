@@ -403,9 +403,9 @@ class DataCollatorForCausalLM(object):
         io_ids = pad_sequence(io_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         label_ids = pad_sequence(label_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         data_dict = {
-            'input_ids': input_ids,
+            'input_ids': io_ids,
             'labels': label_ids,
-            'attention_mask': input_ids.ne(self.tokenizer.pad_token_id),
+            'attention_mask': io_ids.ne(self.tokenizer.pad_token_id),
         }
         return data_dict
 
