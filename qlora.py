@@ -163,6 +163,16 @@ class GenerationArguments:
     # For more hyperparameters check:
     # https://huggingface.co/docs/transformers/main_classes/text_generation#transformers.GenerationConfig
     # Length arguments
+    max_new_tokens: Optional[int] = field(
+        default=256,
+        metadata={"help": "Maximum number of new tokens to be generated in evaluation or prediction loops"
+                          "if predict_with_generate is set."}
+    )
+    min_new_tokens : Optional[int] = field(
+        default=None,
+        metadata={"help": "Minimum number of new tokens to generate."}
+    )
+
     # Generation strategy
     do_sample: Optional[bool] = field(default=False)
     num_beams: Optional[int] = field(default=1)
