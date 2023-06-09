@@ -46,7 +46,6 @@ torch.backends.cuda.matmul.allow_tf32 = True
 logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
-DEFAULT_PAD_TOKEN = "[PAD]"
 
 @dataclass
 class ModelArguments:
@@ -386,7 +385,7 @@ class DataCollatorForCausalLM(object):
             add_special_tokens=False
         ).input_ids
         tokenized_outputs = self.tokenizer(
-            ouptuts,
+            outputs,
             max_length=self.model_max_len,
             truncation=True,
             add_special_tokens=False
@@ -633,15 +632,7 @@ def train():
         cache_dir=args.cache_dir,
         padding_side="right",
         use_fast=False, # Fast tokenizer giving issues.
-        tokenizer_type='llama' if 'llama' in args.model_name_or_path else None, # Needed for HF name change
-        use_auth_token=args.use_auth_token,
     )
-    if tokenizer._pad_token is None:
-        smart_tokenizer_and_embedding_resize(
-            special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
-            tokenizer=tokenizer,
-            model=model,
-        )
     data_module = make_data_module(tokenizer=tokenizer, args=args)
     trainer = Seq2SeqTrainer(
         model=model,
