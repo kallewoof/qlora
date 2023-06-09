@@ -163,16 +163,6 @@ class GenerationArguments:
     # For more hyperparameters check:
     # https://huggingface.co/docs/transformers/main_classes/text_generation#transformers.GenerationConfig
     # Length arguments
-    max_new_tokens: Optional[int] = field(
-        default=256,
-        metadata={"help": "Maximum number of new tokens to be generated in evaluation or prediction loops"
-                          "if predict_with_generate is set."}
-    )
-    min_new_tokens : Optional[int] = field(
-        default=None,
-        metadata={"help": "Minimum number of new tokens to generate."}
-    )
-
     # Generation strategy
     do_sample: Optional[bool] = field(default=False)
     num_beams: Optional[int] = field(default=1)
@@ -358,7 +348,6 @@ def smart_tokenizer_and_embedding_resize(
 class DataCollatorForCausalLM(object):
     tokenizer: transformers.PreTrainedTokenizer
     model_max_len: int
-    predict_with_generate: bool
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         # Extract elements
@@ -366,16 +355,47 @@ class DataCollatorForCausalLM(object):
             f"{self.tokenizer.bos_token}{example['input']}{example['output']}{self.tokenizer.eos_token}"
             for example in instances
         ]
-        tokenized_values = self.tokenizer(
+        inputs = [
+            f"{self.tokenizer.bos_token}{example['input']}"
+            for example in instances
+        ]
+        outputs = [
+            f"{example['output']}{self.tokenizer.eos_token}"
+            for example in instances
+        ]
+        tokenized_io = self.tokenizer(
             values,
             max_length=self.model_max_len,
             truncation=True,
             add_special_tokens=False,
-        )
-        # Apply padding
-        input_ids = pad_sequence(tokenized_values, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+        ).input_ids
+        tokenized_inputs = self.tokenizer(
+            inputs,
+            max_length=self.model_max_len,
+            truncation=True,
+            add_special_tokens=False
+        ).input_ids
+        tokenized_outputs = self.tokenizer(
+            ouptuts,
+            max_length=self.model_max_len,
+            truncation=True,
+            add_special_tokens=False
+        ).input_ids
+        io_ids = [
+            torch.tensor(value) for value in tokenized_io
+        ]
+        label_ids = [
+            torch.tensor(
+                [IGNORE_INDEX for _ in range(len(tokenized_inputs[i]))] +
+                copy.deepcopy(tokenized_outputs[i])
+            )
+            for i in range(len(tokenized_inputs))
+        ]
+        io_ids = pad_sequence(io_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+        label_ids = pad_sequence(label_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         data_dict = {
             'input_ids': input_ids,
+            'labels': label_ids,
             'attention_mask': input_ids.ne(self.tokenizer.pad_token_id),
         }
         return data_dict
@@ -553,7 +573,6 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
     data_collator = DataCollatorForCausalLM(
         tokenizer=tokenizer,
         model_max_len=args.model_max_len,
-        predict_with_generate=args.predict_with_generate,
     )
     return dict(
         train_dataset=train_dataset if args.do_train else None,
