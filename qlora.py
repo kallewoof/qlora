@@ -385,25 +385,18 @@ class DataCollatorForCausalLM(object):
             if len(tokenized_source + tokenized_target) > self.model_max_len:
                 print(f"Skipping input, exceeds max model len: {len(tokenized_source) + len(tokenized_target)} vs {self.model_max_len}")
                 continue
-            if not self.predict_with_generate:
-                input_ids.append(torch.tensor(tokenized_source + tokenized_target))
-                if not self.train_on_source:
-                    labels.append(
-                        torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
-                    )
-                else:
-                    labels.append(torch.tensor(copy.deepcopy(tokenized_source + tokenized_target)))
-            else:
-                input_ids.append(torch.tensor(tokenized_source))
+            input_ids.append(torch.tensor(tokenized_source + tokenized_target))
+            labels.append(
+                torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
+            )
         # Apply padding
         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX) if not self.predict_with_generate else None
+        labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
         data_dict = {
             'input_ids': input_ids,
+            'labels': labels,
             'attention_mask':input_ids.ne(self.tokenizer.pad_token_id),
         }
-        if labels is not None:
-            data_dict['labels'] = labels
         return data_dict
 
 def extract_unnatural_instructions_data(examples, extract_reformulations=False):
