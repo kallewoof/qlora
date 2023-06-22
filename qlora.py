@@ -147,7 +147,7 @@ class TrainingArguments(transformers.Seq2SeqTrainingArguments):
     learning_rate: float = field(default=0.0002, metadata={"help": 'The learnign rate'})
     remove_unused_columns: bool = field(default=False, metadata={"help": 'Removed unused columns. Needed to make this codebase work.'})
     max_grad_norm: float = field(default=0.3, metadata={"help": 'Gradient clipping max norm. This is tuned and works well for all models tested.'})
-    gradient_checkpointing: bool = field(default=True, metadata={"help": 'Use gradient checkpointing. You want to use this.'})
+    gradient_checkpointing: bool = field(default=False, metadata={"help": 'Use gradient checkpointing. You want to use this.'})
     do_train: bool = field(default=True, metadata={"help": 'To train or not to train, that is the question?'})
     lr_scheduler_type: str = field(default='constant', metadata={"help": 'Learning rate schedule. Constant a bit better than cosine, and has advantage for analysis'})
     warmup_ratio: float = field(default=0.03, metadata={"help": 'Fraction of steps to do a warmup for'})
@@ -362,6 +362,8 @@ class DataCollatorForCausalLM(object):
         # Extract elements
         sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
         targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in instances]
+        length_sources = [f"{self.tokenizer.bos_token}__length_exc__"]
+        length_targets = [f"__length_exc__{self.tokenizer.eos_token}"]
         # Tokenize
         tokenized_sources_with_prompt = self.tokenizer(
             sources,
@@ -384,6 +386,10 @@ class DataCollatorForCausalLM(object):
         ):
             if len(tokenized_source + tokenized_target) > self.model_max_len:
                 print(f"Skipping input, exceeds max model len: {len(tokenized_source) + len(tokenized_target)} vs {self.model_max_len}")
+                input_ids.append(torch.tensor(tokenized_length_exc_src['input_ids'][0]))
+                labels.append(
+                    torch.tensor([IGNORE_INDEX for _ in range(len(tokenizd_length_exc_src))] + copy.deepcopy(tokenized_length_exc_tar['input_ids'][0]))
+                )
                 continue
             input_ids.append(torch.tensor(tokenized_source + tokenized_target))
             labels.append(
