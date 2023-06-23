@@ -635,6 +635,8 @@ def train():
         tokenizer_kwargs["padding_side"] = "left"
         tokenizer_kwargs.pop("use_fast")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, **tokenizer_kwargs)
+    if args.mpt and tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = 0
     data_module = make_data_module(tokenizer=tokenizer, args=args)
     trainer = Seq2SeqTrainer(
         model=model,
