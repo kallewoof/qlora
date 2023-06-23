@@ -380,6 +380,9 @@ class DataCollatorForCausalLM(object):
             truncation=True,
             add_special_tokens=False,
         )
+        tokenized_length_exc_src = self.tokenizer(length_sources, add_special_tokens=False)
+        tokenized_length_exc_tar = self.tokenizer(length_targets, add_special_tokens=False)
+
         # Build the input and labels for causal LM
         input_ids = []
         labels = []
