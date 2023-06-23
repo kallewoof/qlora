@@ -626,12 +626,15 @@ def train():
     set_seed(args.seed)
 
     # Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name_or_path,
-        cache_dir=args.cache_dir,
-        padding_side="right",
-        use_fast=False, # Fast tokenizer giving issues.
-    )
+    tokenizer_kwargs = {
+        "cache_dir": args.cache_dir,
+        "padding_side": "right",
+        "use_fast": False,
+    }
+    if args.mpt:
+        tokenizer_kwargs["padding_side"] = "left"
+        tokenizer_kwargs.pop("use_fast")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, **tokenizer_kwargs)
     data_module = make_data_module(tokenizer=tokenizer, args=args)
     trainer = Seq2SeqTrainer(
         model=model,
