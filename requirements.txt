@@ -6,5 +6,5 @@ einops==0.6.1
 evaluate==0.4.0
 scikit-learn==1.2.2
 sentencepiece==0.1.99
-wandb==0.15.3
+wandb==0.15.4
 flash_attn==1.0.5
