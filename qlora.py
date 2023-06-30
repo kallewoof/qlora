@@ -20,13 +20,13 @@ import transformers
 from torch.nn.utils.rnn import pad_sequence
 import argparse
 from transformers import (
-    AutoTokenizer,
+    # AutoTokenizer,
     AutoModelForCausalLM,
     set_seed,
     Seq2SeqTrainer,
     BitsAndBytesConfig,
-    LlamaTokenizer
-
+    LlamaTokenizer,
+    DataCollatorForLanguageModeling,
 )
 from datasets import load_dataset, Dataset
 import evaluate
@@ -156,8 +156,12 @@ class TrainingArguments(transformers.Seq2SeqTrainingArguments):
         metadata={"help": " Lora alpha."}
     )
     lora_dropout: float = field(
-        default=0.0,
+        default=0.05,
         metadata={"help":"Lora dropout."}
+    )
+    num_train_epochs: int = field(
+        default=2,
+        metadata={"help": "Number of training epochs."}
     )
     max_memory_MB: int = field(
         default=80000,
@@ -171,7 +175,7 @@ class TrainingArguments(transformers.Seq2SeqTrainingArguments):
     optim: str = field(default='paged_adamw_32bit', metadata={"help": 'The optimizer to be used'})
     per_device_train_batch_size: int = field(default=1, metadata={"help": 'The training batch size per GPU. Increase for better speed.'})
     gradient_accumulation_steps: int = field(default=16, metadata={"help": 'How many gradients to accumulate before to perform an optimizer step'})
-    max_steps: int = field(default=10000, metadata={"help": 'How many optimizer update steps to take'})
+    # max_steps: int = field(default=999999999, metadata={"help": 'How many optimizer update steps to take'})
     weight_decay: float = field(default=0.0, metadata={"help": 'The L2 weight decay rate of AdamW'}) # use lora dropout instead for regularization if needed
     learning_rate: float = field(default=0.0002, metadata={"help": 'The learnign rate'})
     remove_unused_columns: bool = field(default=False, metadata={"help": 'Removed unused columns. Needed to make this codebase work.'})
@@ -319,16 +323,18 @@ def get_accelerate_model(args, checkpoint_dir):
             print("Loading adapters from checkpoint.")
             model = PeftModel.from_pretrained(model, join(checkpoint_dir, 'adapter_model'), is_trainable=True)
         else:
-            print(f'adding LoRA modules...')
-            modules = find_all_linear_names(args, model)
+            # print(f'adding LoRA modules...')
+            # modules = find_all_linear_names(args, model)
+            # print(f"modules = {modules}")
             config = LoraConfig(
                 r=args.lora_r,
                 lora_alpha=args.lora_alpha,
-                target_modules=modules,
+                target_modules=["q_proj", "v_proj"],
                 lora_dropout=args.lora_dropout,
                 bias="none",
                 task_type="CAUSAL_LM",
             )
+            print(f"lora config = {config}")
             model = get_peft_model(model, config)
 
     for name, module in model.named_modules():
@@ -382,58 +388,52 @@ def smart_tokenizer_and_embedding_resize(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
-@dataclass
-class DataCollatorForCausalLM(object):
-    tokenizer: transformers.PreTrainedTokenizer
-    source_max_len: int
-    target_max_len: int
-    train_on_source: bool
-    predict_with_generate: bool
+# @dataclass
+# class DataCollatorForCausalLM(object):
+#     tokenizer: transformers.PreTrainedTokenizer
+#     source_max_len: int
+#     target_max_len: int
+#     train_on_source: bool
+#     predict_with_generate: bool
 
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        # Extract elements
-        sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
-        targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in instances]
-        # Tokenize
-        tokenized_sources_with_prompt = self.tokenizer(
-            sources,
-            max_length=self.source_max_len,
-            truncation=True,
-            add_special_tokens=False,
-        )
-        tokenized_targets = self.tokenizer(
-            targets,
-            max_length=self.target_max_len,
-            truncation=True,
-            add_special_tokens=False,
-        )
-        # Build the input and labels for causal LM
-        input_ids = []
-        labels = []
-        for tokenized_source, tokenized_target in zip(
-            tokenized_sources_with_prompt['input_ids'],
-            tokenized_targets['input_ids']
-        ):
-            if not self.predict_with_generate:
-                input_ids.append(torch.tensor(tokenized_source + tokenized_target))
-                if not self.train_on_source:
-                    labels.append(
-                        torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
-                    )
-                else:
-                    labels.append(torch.tensor(copy.deepcopy(tokenized_source + tokenized_target)))
-            else:
-                input_ids.append(torch.tensor(tokenized_source))
-        # Apply padding
-        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX) if not self.predict_with_generate else None
-        data_dict = {
-            'input_ids': input_ids,
-            'attention_mask':input_ids.ne(self.tokenizer.pad_token_id),
-        }
-        if labels is not None:
-            data_dict['labels'] = labels
-        return data_dict
+#     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+#         # Extract elements
+#         # sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
+#         targets = [f"{example}{self.tokenizer.eos_token}" for example in instances]
+#         # Tokenize
+#         tokenized_targets = self.tokenizer(
+#             targets,
+#             max_length=self.target_max_len,
+#             truncation=True,
+#             add_special_tokens=False,
+#         )
+#         # Build the input and labels for causal LM
+#         input_ids = []
+#         labels = []
+#         for tokenized_source, tokenized_target in zip(
+#             tokenized_sources_with_prompt['input_ids'],
+#             tokenized_targets['input_ids']
+#         ):
+#             if not self.predict_with_generate:
+#                 input_ids.append(torch.tensor(tokenized_source + tokenized_target))
+#                 if not self.train_on_source:
+#                     labels.append(
+#                         torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
+#                     )
+#                 else:
+#                     labels.append(torch.tensor(copy.deepcopy(tokenized_source + tokenized_target)))
+#             else:
+#                 input_ids.append(torch.tensor(tokenized_source))
+#         # Apply padding
+#         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+#         labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX) if not self.predict_with_generate else None
+#         data_dict = {
+#             'input_ids': input_ids,
+#             'attention_mask':input_ids.ne(self.tokenizer.pad_token_id),
+#         }
+#         if labels is not None:
+#             data_dict['labels'] = labels
+#         return data_dict
 
 def extract_unnatural_instructions_data(examples, extract_reformulations=False):
     out = {
@@ -472,7 +472,99 @@ def extract_alpaca_dataset(example):
         prompt_format = ALPACA_PROMPT_DICT["prompt_no_input"]
     return {'input': prompt_format.format(**example)}
 
-def local_dataset(dataset_name):
+
+# derived from oobabooga trainer.py 2023-06-26
+def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
+    """
+    Prepares a raw dataset file for training.
+    """
+    def tokenize(prompt):
+        def encode(text, add_bos_token):
+            result = tokenizer.encode(text, truncation=True, max_length=cutoff_len)
+            if not add_bos_token and result[0] == tokenizer.bos_token_id:
+                result = result[1:]
+            return result
+
+        input_ids = encode(prompt, True)
+        input_ids = [tokenizer.pad_token_id] * (cutoff_len - len(input_ids)) + input_ids
+        labels = [1] * len(input_ids)
+
+        input_ids = torch.tensor(input_ids)
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": input_ids.ne(tokenizer.pad_token_id),
+        }
+
+    print("Preparing raw dataset file for training...")
+    def split_chunks(arr, step):
+        for i in range(0, len(arr), step):
+            yield arr[i:i + step]
+    def cut_chunk_for_newline(chunk: str, max_length: int):
+        # f.write(f"cut_chunk_for_newline({chunk}, {max_length})\n")
+        if '\n' not in chunk:
+            # f.write(f"no newline in chunk")
+            return chunk
+
+        first_newline = chunk.index('\n')
+        if first_newline < max_length:
+            chunk = chunk[first_newline + 1:]
+            # f.write(f"first newline at {first_newline} < {max_length}; chunk => {chunk}")
+
+        if '\n' not in chunk:
+            # f.write(f"no newline in chunk; done; returning {chunk}")
+            return chunk
+
+        last_newline = chunk.rindex('\n')
+        if len(chunk) - last_newline < max_length:
+            chunk = chunk[:last_newline]
+            # f.write(f"last newline at {last_newline} < {max_length}; chunk => {chunk}")
+
+        return chunk
+
+    print("- Reading raw data file...")
+    with open(raw_data_path, "r", encoding='utf-8') as file:
+        raw_text = file.read().replace("\r", "")
+
+    cut_string = hard_cut_string.replace('\\n', '\n')
+    out_tokens = []
+    step = cutoff_len - overlap_len
+    if step <= 0:
+        raise ValueError(
+            f"Error: overlap_len ({overlap_len}) must be smaller than cutoff_len ({cutoff_len})"
+        )
+
+    print("- Tokenizing...")
+    # with open("/home/user/self_raw_text.txt", "w", encoding='utf-8') as file:
+    for text_part in raw_text.split(cut_string):
+        # file.write(f"================================================================================== TEXT PART\n\n\n{text_part}\n\n\n\n\n")
+        if text_part.strip() == "":
+            continue
+
+        tokens = tokenizer.encode(text_part)
+        # file.write(f"================================================================================== TOKENS\n\n\n{tokens}\n\n\n\n\n")
+        # file.write(f"step = {cutoff_len} - {overlap_len} = {step}")
+        tokens = list(split_chunks(tokens, step))
+        # file.write(f"================================================================================== CHUNKS\n\n\n{tokens}\n\n\n\n\n")
+        for i in range(1, len(tokens)):
+            tokens[i] = tokens[i - 1][-overlap_len:] + tokens[i]
+        # file.write(f"================================================================================== CHUNKS WITH OVERLAP\n\n\n{tokens}\n\n\n\n\n")
+
+        out_tokens.extend(tokens)
+
+    del raw_text # could be huge
+    print("- Splitting into chunks...")
+    text_chunks = [tokenizer.decode(tokens) for tokens in out_tokens]
+    # file.write(f"================================================================================== TEXT CHUNKS\n\n\n{text_chunks}\n\n\n\n\n")
+    del out_tokens
+    print("- Cutting chunks for newlines...")
+    text_chunks = [cut_chunk_for_newline(chunk, newline_favor_len) for chunk in text_chunks]
+    # file.write(f"================================================================================== TEXT CHUNKS NEWLINED\n\n\n{text_chunks}\n\n\n\n\n")
+    result = Dataset.from_list([tokenize(x) for x in text_chunks])
+    del text_chunks
+    return result
+
+def local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
     if dataset_name.endswith('.json'):
         full_dataset = Dataset.from_json(path_or_paths=dataset_name)
     elif dataset_name.endswith('.jsonl'):
@@ -481,6 +573,8 @@ def local_dataset(dataset_name):
         full_dataset = Dataset.from_pandas(pd.read_csv(dataset_name))
     elif dataset_name.endswith('.tsv'):
         full_dataset = Dataset.from_pandas(pd.read_csv(dataset_name, delimiter='\t'))
+    elif dataset_name.endswith('.txt'):
+        full_dataset = prep_raw_file(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string)
     else:
         raise ValueError(f"Unsupported dataset format: {dataset_name}")
 
@@ -511,7 +605,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         - vicuna
 
     """
-    def load_data(dataset_name):
+    def load_data(dataset_name, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
         if dataset_name == 'alpaca':
             return load_dataset("tatsu-lab/alpaca")
         elif dataset_name == 'alpaca-clean':
@@ -532,7 +626,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             if os.path.exists(dataset_name):
                 try:
                     args.dataset_format = args.dataset_format if args.dataset_format else "input-output"
-                    full_dataset = local_dataset(dataset_name)
+                    full_dataset = local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string)
                     return full_dataset
                 except:
                     raise ValueError(f"Error loading dataset from {dataset_name}")
@@ -573,41 +667,42 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset)
-    dataset = format_dataset(dataset, args.dataset_format)
+    dataset = load_data(args.dataset, 256, 128, 128, "*** NEW FILE ***")
+    # dataset = format_dataset(dataset, args.dataset_format)
 
-    # Split train/eval, reduce size
-    if args.do_eval or args.do_predict:
-        if 'eval' in dataset:
-            eval_dataset = dataset['eval']
-        else:
-            print('Splitting train dataset in train and validation according to `eval_dataset_size`')
-            dataset = dataset["train"].train_test_split(
-                test_size=args.eval_dataset_size, shuffle=True, seed=42
-            )
-            eval_dataset = dataset['test']
-        if args.max_eval_samples is not None and len(eval_dataset) > args.max_eval_samples:
-            eval_dataset = eval_dataset.select(range(args.max_eval_samples))
-        if args.group_by_length:
-            eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
+    # # Split train/eval, reduce size
+    # if args.do_eval or args.do_predict:
+    #     if 'eval' in dataset:
+    #         eval_dataset = dataset['eval']
+    #     else:
+    #         print('Splitting train dataset in train and validation according to `eval_dataset_size`')
+    #         dataset = dataset["train"].train_test_split(
+    #             test_size=args.eval_dataset_size, shuffle=True, seed=42
+    #         )
+    #         eval_dataset = dataset['test']
+    #     if args.max_eval_samples is not None and len(eval_dataset) > args.max_eval_samples:
+    #         eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+    #     if args.group_by_length:
+    #         eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
     if args.do_train:
         train_dataset = dataset['train']
         if args.max_train_samples is not None and len(train_dataset) > args.max_train_samples:
             train_dataset = train_dataset.select(range(args.max_train_samples))
-        if args.group_by_length:
-            train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
+        # if args.group_by_length:
+        #     train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
 
-    data_collator = DataCollatorForCausalLM(
-        tokenizer=tokenizer,
-        source_max_len=args.source_max_len,
-        target_max_len=args.target_max_len,
-        train_on_source=args.train_on_source,
-        predict_with_generate=args.predict_with_generate,
-    )
+    # data_collator = DataCollatorForCausalLM(
+    #     tokenizer=tokenizer,
+    #     source_max_len=args.source_max_len,
+    #     target_max_len=args.target_max_len,
+    #     train_on_source=args.train_on_source,
+    #     predict_with_generate=args.predict_with_generate,
+    # )
+    data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     return dict(
         train_dataset=train_dataset if args.do_train else None,
-        eval_dataset=eval_dataset if args.do_eval else None,
-        predict_dataset=eval_dataset if args.do_predict else None,
+        # eval_dataset=eval_dataset if args.do_eval else None,
+        # predict_dataset=eval_dataset if args.do_predict else None,
         data_collator=data_collator
     )
 
@@ -648,13 +743,14 @@ def train():
     set_seed(args.seed)
 
     # Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = LlamaTokenizer.from_pretrained(
         args.model_name_or_path,
         cache_dir=args.cache_dir,
-        padding_side="right",
-        use_fast=False, # Fast tokenizer giving issues.
-        tokenizer_type='llama' if 'llama' in args.model_name_or_path else None, # Needed for HF name change
-        use_auth_token=args.use_auth_token,
+        # padding_side="right",
+        # use_fast=False, # Fast tokenizer giving issues.
+        # tokenizer_type='llama' if 'llama' in args.model_name_or_path else None, # Needed for HF name change
+        # use_auth_token=args.use_auth_token,
+        clean_up_tokenization_spaces=True,
     )
     if tokenizer._pad_token is None:
         smart_tokenizer_and_embedding_resize(
