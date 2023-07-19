@@ -394,7 +394,7 @@ class DataCollatorForCausalLM(object):
                 print(f"Skipping input, exceeds max model len: {len(tokenized_source) + len(tokenized_target)} vs {self.model_max_len}")
                 input_ids.append(torch.tensor(tokenized_length_exc_src['input_ids'][0]))
                 labels.append(
-                    torch.tensor([IGNORE_INDEX for _ in range(len(tokenizd_length_exc_src))] + copy.deepcopy(tokenized_length_exc_tar['input_ids'][0]))
+                    torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_length_exc_src))] + copy.deepcopy(tokenized_length_exc_tar['input_ids'][0]))
                 )
                 continue
             input_ids.append(torch.tensor(tokenized_source + tokenized_target))
