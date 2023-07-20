@@ -365,8 +365,7 @@ class DataCollatorForCausalLM(object):
         # Extract elements
         sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
         targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in instances]
-        length_sources = [f"{self.tokenizer.bos_token}__length_exc__"]
-        length_targets = [f"__length_exc__{self.tokenizer.eos_token}"]
+
         # Tokenize
         tokenized_sources_with_prompt = self.tokenizer(
             sources,
@@ -380,8 +379,6 @@ class DataCollatorForCausalLM(object):
             truncation=True,
             add_special_tokens=False,
         )
-        tokenized_length_exc_src = self.tokenizer(length_sources, add_special_tokens=False)
-        tokenized_length_exc_tar = self.tokenizer(length_targets, add_special_tokens=False)
 
         # Build the input and labels for causal LM
         input_ids = []
@@ -390,13 +387,6 @@ class DataCollatorForCausalLM(object):
             tokenized_sources_with_prompt['input_ids'],
             tokenized_targets['input_ids']
         ):
-            if len(tokenized_source + tokenized_target) > self.model_max_len:
-                print(f"Skipping input, exceeds max model len: {len(tokenized_source) + len(tokenized_target)} vs {self.model_max_len}")
-                input_ids.append(torch.tensor(tokenized_length_exc_src['input_ids'][0]))
-                labels.append(
-                    torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_length_exc_src))] + copy.deepcopy(tokenized_length_exc_tar['input_ids'][0]))
-                )
-                continue
             input_ids.append(torch.tensor(tokenized_source + tokenized_target))
             labels.append(
                 torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
@@ -580,7 +570,22 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             train_dataset = train_dataset.select(range(args.max_train_samples))
         if args.group_by_length:
             train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
-
+            
+    # Remove any training data that exceeds the max length.
+    def _get_data_length(item):
+        prompt = f"{tokenizer.bos_token}{item['input']}{item['output']}{tokenizer.eos_token}"
+        return len(
+            tokenizer(
+                prompt,
+                max_length=args.model_max_len + 1,
+                truncation=True,
+                add_special_tokens=False
+            ).input_ids
+        )
+    train_dataset = train_dataset.filter(
+        lambda x: _get_data_length(x) < args.model_max_len - 10
+    )
+    
     data_collator = DataCollatorForCausalLM(
         tokenizer=tokenizer,
         model_max_len=args.model_max_len,
