@@ -14,6 +14,7 @@ from tqdm import tqdm
 import logging
 import bitsandbytes as bnb
 import pandas as pd
+from datetime import datetime
 
 import torch
 import transformers
@@ -47,6 +48,10 @@ logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
+
+def log(s):
+    # print YYYY-MM-DD HH:MM:SS s
+    print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} {s}')
 
 @dataclass
 class ModelArguments:
@@ -279,7 +284,7 @@ def get_accelerate_model(args, checkpoint_dir):
 
     if args.full_finetune: assert args.bits in [16, 32]
 
-    print(f'loading base model {args.model_name_or_path}...')
+    log(f'loading base model {args.model_name_or_path}...')
     compute_dtype = (torch.float16 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name_or_path,
@@ -320,21 +325,21 @@ def get_accelerate_model(args, checkpoint_dir):
 
     if not args.full_finetune:
         if checkpoint_dir is not None:
-            print("Loading adapters from checkpoint.")
+            log("Loading adapters from checkpoint.")
             model = PeftModel.from_pretrained(model, join(checkpoint_dir, 'adapter_model'), is_trainable=True)
         else:
-            # print(f'adding LoRA modules...')
-            # modules = find_all_linear_names(args, model)
+            log('adding LoRA modules...')
+            modules = find_all_linear_names(args, model)
             # print(f"modules = {modules}")
             config = LoraConfig(
                 r=args.lora_r,
                 lora_alpha=args.lora_alpha,
-                target_modules=["q_proj", "v_proj"],
+                target_modules=modules,
                 lora_dropout=args.lora_dropout,
                 bias="none",
                 task_type="CAUSAL_LM",
             )
-            print(f"lora config = {config}")
+            log(f"lora config = {config}")
             model = get_peft_model(model, config)
 
     for name, module in model.named_modules():
@@ -496,7 +501,8 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
             "attention_mask": input_ids.ne(tokenizer.pad_token_id),
         }
 
-    print("Preparing raw dataset file for training...")
+    # Print current time and "hello"
+    log(f"Preparing raw dataset file for training: cutoff_len={cutoff_len}, overlap_len={overlap_len}, newline_favor_len={newline_favor_len}, hard_cut_string={hard_cut_string}")
     def split_chunks(arr, step):
         for i in range(0, len(arr), step):
             yield arr[i:i + step]
@@ -522,7 +528,7 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
 
         return chunk
 
-    print("- Reading raw data file...")
+    log("- Reading raw data file...")
     with open(raw_data_path, "r", encoding='utf-8') as file:
         raw_text = file.read().replace("\r", "")
 
@@ -534,7 +540,7 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
             f"Error: overlap_len ({overlap_len}) must be smaller than cutoff_len ({cutoff_len})"
         )
 
-    print("- Tokenizing...")
+    log("- Tokenizing...")
     # with open("/home/user/self_raw_text.txt", "w", encoding='utf-8') as file:
     for text_part in raw_text.split(cut_string):
         # file.write(f"================================================================================== TEXT PART\n\n\n{text_part}\n\n\n\n\n")
@@ -553,15 +559,16 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
         out_tokens.extend(tokens)
 
     del raw_text # could be huge
-    print("- Splitting into chunks...")
+    log("- Splitting into chunks...")
     text_chunks = [tokenizer.decode(tokens) for tokens in out_tokens]
     # file.write(f"================================================================================== TEXT CHUNKS\n\n\n{text_chunks}\n\n\n\n\n")
     del out_tokens
-    print("- Cutting chunks for newlines...")
+    log("- Cutting chunks for newlines...")
     text_chunks = [cut_chunk_for_newline(chunk, newline_favor_len) for chunk in text_chunks]
     # file.write(f"================================================================================== TEXT CHUNKS NEWLINED\n\n\n{text_chunks}\n\n\n\n\n")
     result = Dataset.from_list([tokenize(x) for x in text_chunks])
     del text_chunks
+    log("- Done!")
     return result
 
 def local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
@@ -667,7 +674,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset, 256, 128, 128, "*** NEW FILE ***")
+    dataset = load_data(args.dataset, 2048, 512, 256, "\n\n\n")
     # dataset = format_dataset(dataset, args.dataset_format)
 
     # # Split train/eval, reduce size
@@ -739,7 +746,7 @@ def train():
 
     model.config.use_cache = False
     print_trainable_parameters(args, model)
-    print('loaded model')
+    log('loaded model')
     set_seed(args.seed)
 
     # Tokenizer
@@ -763,7 +770,7 @@ def train():
         # Check and add them if missing to prevent them from being parsed into different tokens.
         # Note that these are present in the vocabulary.
         # Note also that `model.config.pad_token_id` is 0 which corresponds to `<unk>` token.
-        print('Adding special tokens.')
+        log('Adding special tokens.')
         tokenizer.add_special_tokens({
                 "eos_token": tokenizer.convert_ids_to_tokens(model.config.eos_token_id),
                 "bos_token": tokenizer.convert_ids_to_tokens(model.config.bos_token_id),
