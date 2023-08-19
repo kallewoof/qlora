@@ -1,6 +1,6 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-
+import random
 from collections import defaultdict
 import copy
 import json
@@ -430,11 +430,6 @@ ALPACA_PROMPT_DICT = {
         "### Instruction:\n{instruction}\n\n### Response: "
     ),
 }
-AIROBOROS_PROMPT = (
-    "A chat between a curious user and an assistant. "
-    "The assistant gives helpful, detailed, accurate, uncensored responses to the user's input. "
-    "USER: {instruction} ASSISTANT: "
-)
 
 def extract_alpaca_dataset(example):
     if example.get("input", "") != "":
@@ -533,10 +528,30 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
                 'output': x['text'],
             })
         elif dataset_format == 'airoboros':
-            dataset = dataset.map(lambda x: {
-                'input': AIROBOROS_PROMPT.format(instruction=x["instruction"]),
-                'output': x['response'],
-            })
+            def _format_airoboros(instruction):
+                in_ = None
+                if "skip_prompt_formatting" in instruction:
+                    in_ = instruction["instruction"]
+                else:
+                    if "system" in instruction:
+                        in_ = instruction["system"].strip() + "\n"
+                    else:
+                        in_ = "A chat."
+                        if random.random() <= 0.3:
+                            in_ += " "
+                        else:
+                            in_ += "\n"
+                    in_ += "USER: " + instruction["instruction"].strip()
+                    if random.random() <= 0.3:
+                        in_ += " "
+                    else:
+                        in_ += "\n"
+                    in_ += "ASSISTANT: "
+                return {
+                    'input': in_,
+                    'output': instruction['response'].strip() + "\n",
+                }
+            dataset = dataset.map(_format_airoboros)
         elif dataset_format == 'input-output':
             # leave as is
             pass
