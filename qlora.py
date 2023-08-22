@@ -241,7 +241,7 @@ def get_accelerate_model(args, checkpoint_dir):
     # if we are in a distributed setting, we need to set the device map and max memory per device
     if os.environ.get('LOCAL_RANK') is not None:
         local_rank = int(os.environ.get('LOCAL_RANK', '0'))
-        device_map = {'': local_rank}
+        device_map = {'': f'cuda:{local_rank}'}
         max_memory = {'': max_memory[local_rank]}
 
 
@@ -448,7 +448,7 @@ def local_dataset(dataset_name):
     else:
         raise ValueError(f"Unsupported dataset format: {dataset_name}")
 
-    split_dataset = full_dataset.train_test_split(test_size=0.1)
+    split_dataset = full_dataset.train_test_split(test_size=0.001)
     return split_dataset
 
 def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
@@ -542,6 +542,12 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
                         else:
                             in_ += "\n"
                     in_ += "USER: " + instruction["instruction"].strip()
+                    if in_.endswith("PLAINFORMAT"):
+                        in_ = re.sub(r"[\n\s]+PLAINFORMAT$", "", in_, re.DOTALL)
+                        if random.random() <= 0.5:
+                            in_ += "\nPLAINFORMAT"
+                        else:
+                            in_ += " PLAINFORMAT"
                     if random.random() <= 0.3:
                         in_ += " "
                     else:
