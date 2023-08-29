@@ -54,7 +54,12 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
         config_data.pop("pretraining_tp", None)
         with open(os.path.join(to, 'config.json'), 'w') as config:
             config.write(json.dumps(config_data, indent=2))
-        return model
+    return LlamaForCausalLM.from_pretrained(
+        to,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
+
 
 def main():
     args = get_args()
@@ -67,15 +72,23 @@ def main():
         bnb_4bit_quant_type="nf4",
     )
     print(f"Loading base model: {model_path}")
-    model = LlamaForCausalLM.from_pretrained(
-        model_path,
-        load_in_4bit=True,
-        torch_dtype=torch.bfloat16,
-        quantization_config=quantization_config,
-        device_map="auto",
-    )
-    tokenizer = LlamaTokenizer.from_pretrained(model_path)
-    model = dequantize_model(model, tokenizer, to=f"{model_path}-dequantized")
+    model = None
+    if os.path.exists(f"{model_path}-dequantized"):
+        model = LlamaForCausalLM.from_pretrained(
+            f"{model_path}-dequantized",
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+        )
+    else:
+        model = LlamaForCausalLM.from_pretrained(
+            model_path,
+            load_in_4bit=True,
+            torch_dtype=torch.bfloat16,
+            quantization_config=quantization_config,
+            device_map="auto",
+        )
+        tokenizer = LlamaTokenizer.from_pretrained(model_path)
+        model = dequantize_model(model, tokenizer, to=f"{model_path}-dequantized")
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     print("Successfully loaded and merged model, saving...")
