@@ -87,8 +87,8 @@ def main():
             quantization_config=quantization_config,
             device_map="auto",
         )
-        tokenizer = LlamaTokenizer.from_pretrained(model_path)
         model = dequantize_model(model, tokenizer, to=f"{model_path}-dequantized")
+    tokenizer = LlamaTokenizer.from_pretrained(model_path)
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     print("Successfully loaded and merged model, saving...")
