@@ -54,11 +54,7 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
         config_data.pop("pretraining_tp", None)
         with open(os.path.join(to, 'config.json'), 'w') as config:
             config.write(json.dumps(config_data, indent=2))
-    return LlamaForCausalLM.from_pretrained(
-        to,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-    )
+        return model
 
 
 def main():
@@ -94,6 +90,11 @@ def main():
     print("Successfully loaded and merged model, saving...")
     model.save_pretrained(args.out)
     tokenizer.save_pretrained(args.out)
+    config_data = json.loads(open(os.path.join(args.out, 'config.json'), 'r').read())
+    config_data.pop("quantization_config", None)
+    config_data.pop("pretraining_tp", None)
+    with open(os.path.join(args.out, 'config.json'), 'w') as config:
+        config.write(json.dumps(config_data, indent=2))
     print(f"Model saved: {args.out}")
     if args.push:
         print(f"Saving to hub ...")
