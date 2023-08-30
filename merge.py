@@ -22,9 +22,10 @@ def main():
         return_dict=True,
         torch_dtype=torch.bfloat16,
         device_map="auto",
+        # offload_folder="offload",
     )
     print(f"Loading PEFT: {args.peft}")
-    model = PeftModel.from_pretrained(base_model, args.peft)
+    model = PeftModel.from_pretrained(base_model, args.peft, offload_folder="offload2")
     print(f"Running merge_and_unload")
     model = model.merge_and_unload()
     tokenizer = AutoTokenizer.from_pretrained(args.base)

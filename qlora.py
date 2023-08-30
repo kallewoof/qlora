@@ -14,6 +14,7 @@ from tqdm import tqdm
 import logging
 import bitsandbytes as bnb
 import pandas as pd
+from datetime import datetime
 
 import torch
 import transformers
@@ -46,6 +47,10 @@ torch.backends.cuda.matmul.allow_tf32 = True
 logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
+
+def log(s):
+    # print YYYY-MM-DD HH:MM:SS s
+    print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} {s}')
 
 @dataclass
 class ModelArguments:
@@ -247,7 +252,7 @@ def get_accelerate_model(args, checkpoint_dir):
 
     if args.full_finetune: assert args.bits in [16, 32]
 
-    print(f'loading base model {args.model_name_or_path}...')
+    log(f'loading base model {args.model_name_or_path}...')
     compute_dtype = (torch.float16 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
     model_kwargs = {
         "cache_dir": args.cache_dir,
@@ -290,10 +295,10 @@ def get_accelerate_model(args, checkpoint_dir):
 
     if not args.full_finetune:
         if checkpoint_dir is not None:
-            print("Loading adapters from checkpoint.")
+            log("Loading adapters from checkpoint.")
             model = PeftModel.from_pretrained(model, join(checkpoint_dir, 'adapter_model'), is_trainable=True)
         else:
-            print(f'adding LoRA modules...')
+            log(f'adding LoRA modules...')
             modules = find_all_linear_names(args, model)
             config = LoraConfig(
                 r=args.lora_r,
@@ -303,6 +308,7 @@ def get_accelerate_model(args, checkpoint_dir):
                 bias="none",
                 task_type="CAUSAL_LM",
             )
+            log(f"lora config = {config}")
             model = get_peft_model(model, config)
 
     for name, module in model.named_modules():
@@ -438,13 +444,108 @@ def extract_alpaca_dataset(example):
         prompt_format = ALPACA_PROMPT_DICT["prompt_no_input"]
     return {'input': prompt_format.format(**example)}
 
-def local_dataset(dataset_name):
+# derived from oobabooga trainer.py 2023-06-26
+def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
+    """
+    Prepares a raw dataset file for training.
+    """
+    def tokenize(prompt):
+        def encode(text, add_bos_token):
+            result = tokenizer.encode(text, truncation=True, max_length=cutoff_len)
+            if not add_bos_token and result[0] == tokenizer.bos_token_id:
+                result = result[1:]
+            return result
+
+        input_ids = encode(prompt, True)
+        input_ids = [tokenizer.pad_token_id] * (cutoff_len - len(input_ids)) + input_ids
+        labels = [1] * len(input_ids)
+
+        input_ids = torch.tensor(input_ids)
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": input_ids.ne(tokenizer.pad_token_id),
+        }
+
+    # Print current time and "hello"
+    log(f"Preparing raw dataset file for training: cutoff_len={cutoff_len}, overlap_len={overlap_len}, newline_favor_len={newline_favor_len}, hard_cut_string={hard_cut_string}")
+    def split_chunks(arr, step):
+        for i in range(0, len(arr), step):
+            yield arr[i:i + step]
+    def cut_chunk_for_newline(chunk: str, max_length: int):
+        # f.write(f"cut_chunk_for_newline({chunk}, {max_length})\n")
+        if '\n' not in chunk:
+            # f.write(f"no newline in chunk")
+            return chunk
+
+        first_newline = chunk.index('\n')
+        if first_newline < max_length:
+            chunk = chunk[first_newline + 1:]
+            # f.write(f"first newline at {first_newline} < {max_length}; chunk => {chunk}")
+
+        if '\n' not in chunk:
+            # f.write(f"no newline in chunk; done; returning {chunk}")
+            return chunk
+
+        last_newline = chunk.rindex('\n')
+        if len(chunk) - last_newline < max_length:
+            chunk = chunk[:last_newline]
+            # f.write(f"last newline at {last_newline} < {max_length}; chunk => {chunk}")
+
+        return chunk
+
+    log("- Reading raw data file...")
+    with open(raw_data_path, "r", encoding='utf-8') as file:
+        raw_text = file.read().replace("\r", "")
+
+    cut_string = hard_cut_string.replace('\\n', '\n')
+    out_tokens = []
+    step = cutoff_len - overlap_len
+    if step <= 0:
+        raise ValueError(
+            f"Error: overlap_len ({overlap_len}) must be smaller than cutoff_len ({cutoff_len})"
+        )
+
+    log("- Tokenizing...")
+    # with open("/home/user/self_raw_text.txt", "w", encoding='utf-8') as file:
+    for text_part in raw_text.split(cut_string):
+        # file.write(f"================================================================================== TEXT PART\n\n\n{text_part}\n\n\n\n\n")
+        if text_part.strip() == "":
+            continue
+
+        tokens = tokenizer.encode(text_part)
+        # file.write(f"================================================================================== TOKENS\n\n\n{tokens}\n\n\n\n\n")
+        # file.write(f"step = {cutoff_len} - {overlap_len} = {step}")
+        tokens = list(split_chunks(tokens, step))
+        # file.write(f"================================================================================== CHUNKS\n\n\n{tokens}\n\n\n\n\n")
+        for i in range(1, len(tokens)):
+            tokens[i] = tokens[i - 1][-overlap_len:] + tokens[i]
+        # file.write(f"================================================================================== CHUNKS WITH OVERLAP\n\n\n{tokens}\n\n\n\n\n")
+
+        out_tokens.extend(tokens)
+
+    del raw_text # could be huge
+    log("- Splitting into chunks...")
+    text_chunks = [tokenizer.decode(tokens) for tokens in out_tokens]
+    # file.write(f"================================================================================== TEXT CHUNKS\n\n\n{text_chunks}\n\n\n\n\n")
+    del out_tokens
+    log("- Cutting chunks for newlines...")
+    text_chunks = [cut_chunk_for_newline(chunk, newline_favor_len) for chunk in text_chunks]
+    # file.write(f"================================================================================== TEXT CHUNKS NEWLINED\n\n\n{text_chunks}\n\n\n\n\n")
+    result = Dataset.from_list([tokenize(x) for x in text_chunks])
+    del text_chunks
+    log("- Done!")
+    return result
+
+def local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
     if dataset_name.endswith(('.json', '.jsonl')):
         full_dataset = Dataset.from_json(path_or_paths=dataset_name)
     elif dataset_name.endswith('.csv'):
         full_dataset = Dataset.from_pandas(pd.read_csv(dataset_name))
     elif dataset_name.endswith('.tsv'):
         full_dataset = Dataset.from_pandas(pd.read_csv(dataset_name, delimiter='\t'))
+    elif dataset_name.endswith('.txt'):
+        full_dataset = prep_raw_file(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string)
     else:
         raise ValueError(f"Unsupported dataset format: {dataset_name}")
 
@@ -475,7 +576,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         - vicuna
 
     """
-    def load_data(dataset_name):
+    def load_data(dataset_name, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
         if dataset_name == 'alpaca':
             return load_dataset("tatsu-lab/alpaca")
         elif dataset_name == 'alpaca-clean':
@@ -496,7 +597,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             if os.path.exists(dataset_name):
                 try:
                     args.dataset_format = args.dataset_format if args.dataset_format else "input-output"
-                    full_dataset = local_dataset(dataset_name)
+                    full_dataset = local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string)
                     return full_dataset
                 except:
                     raise ValueError(f"Error loading dataset from {dataset_name}")
@@ -568,44 +669,44 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset)
-    dataset = format_dataset(dataset, args.dataset_format)
+    dataset = load_data(args.dataset, 512, 256, 128, "\n\n\n")
+    # dataset = format_dataset(dataset, args.dataset_format)
 
-    # Split train/eval, reduce size
-    if args.do_eval or args.do_predict:
-        if 'eval' in dataset:
-            eval_dataset = dataset['eval']
-        else:
-            print('Splitting train dataset in train and validation according to `eval_dataset_size`')
-            dataset = dataset["train"].train_test_split(
-                test_size=args.eval_dataset_size, shuffle=True, seed=42
-            )
-            eval_dataset = dataset['test']
-        if args.max_eval_samples is not None and len(eval_dataset) > args.max_eval_samples:
-            eval_dataset = eval_dataset.select(range(args.max_eval_samples))
-        if args.group_by_length:
-            eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
+    # # Split train/eval, reduce size
+    # if args.do_eval or args.do_predict:
+    #     if 'eval' in dataset:
+    #         eval_dataset = dataset['eval']
+    #     else:
+    #         print('Splitting train dataset in train and validation according to `eval_dataset_size`')
+    #         dataset = dataset["train"].train_test_split(
+    #             test_size=args.eval_dataset_size, shuffle=True, seed=42
+    #         )
+    #         eval_dataset = dataset['test']
+    #     if args.max_eval_samples is not None and len(eval_dataset) > args.max_eval_samples:
+    #         eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+    #     if args.group_by_length:
+    #         eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
     if args.do_train:
         train_dataset = dataset['train']
         if args.max_train_samples is not None and len(train_dataset) > args.max_train_samples:
             train_dataset = train_dataset.select(range(args.max_train_samples))
-        if args.group_by_length:
-            train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
-            
-    # Remove any training data that exceeds the max length.
-    def _get_data_length(item):
-        prompt = f"{tokenizer.bos_token}{item['input']}{item['output']}{tokenizer.eos_token}"
-        return len(
-            tokenizer(
-                prompt,
-                max_length=args.model_max_len + 1,
-                truncation=True,
-                add_special_tokens=False
-            ).input_ids
-        )
-    train_dataset = train_dataset.filter(
-        lambda x: _get_data_length(x) < args.model_max_len - 10
-    )
+        # if args.group_by_length:
+        #     train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
+
+    # # Remove any training data that exceeds the max length.
+    # def _get_data_length(item):
+    #     prompt = f"{tokenizer.bos_token}{item['input']}{item['output']}{tokenizer.eos_token}"
+    #     return len(
+    #         tokenizer(
+    #             prompt,
+    #             max_length=args.model_max_len + 1,
+    #             truncation=True,
+    #             add_special_tokens=False
+    #         ).input_ids
+    #     )
+    # train_dataset = train_dataset.filter(
+    #     lambda x: _get_data_length(x) < args.model_max_len - 10
+    # )
     
     data_collator = DataCollatorForCausalLM(
         tokenizer=tokenizer,
@@ -613,8 +714,8 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
     )
     return dict(
         train_dataset=train_dataset if args.do_train else None,
-        eval_dataset=eval_dataset if args.do_eval else None,
-        predict_dataset=eval_dataset if args.do_predict else None,
+        # eval_dataset=eval_dataset if args.do_eval else None,
+        # predict_dataset=eval_dataset if args.do_predict else None,
         data_collator=data_collator
     )
 
@@ -651,7 +752,7 @@ def train():
 
     model.config.use_cache = False
     print_trainable_parameters(args, model)
-    print('loaded model')
+    log('loaded model')
     set_seed(args.seed)
 
     # Tokenizer
