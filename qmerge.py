@@ -30,7 +30,7 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
     'device': device to load the model to
     """
     if os.path.exists(to):
-        shutil.rmtree(to)
+        return LlamaForCausalLM.from_pretrained(to, torch_dtype=torch.bfloat16, device_map="auto")
     os.makedirs(to, exist_ok=True)
     cls = bnb.nn.Linear4bit
     with torch.no_grad():
@@ -69,6 +69,7 @@ def main():
     )
     print(f"Loading base model: {model_path}")
     model = None
+    tokenizer = LlamaTokenizer.from_pretrained(model_path)
     if os.path.exists(f"{model_path}-dequantized"):
         model = LlamaForCausalLM.from_pretrained(
             f"{model_path}-dequantized",
@@ -84,7 +85,6 @@ def main():
             device_map="auto",
         )
         model = dequantize_model(model, tokenizer, to=f"{model_path}-dequantized")
-    tokenizer = LlamaTokenizer.from_pretrained(model_path)
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     print("Successfully loaded and merged model, saving...")
