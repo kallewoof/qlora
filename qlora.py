@@ -23,8 +23,8 @@ import argparse
 from transformers import (
     # AutoTokenizer,
     AutoModelForCausalLM,
-    set_seed,
     Seq2SeqTrainer,
+    set_seed,
     BitsAndBytesConfig,
     LlamaTokenizer,
     DataCollatorForLanguageModeling,
@@ -674,7 +674,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset, 2048, 512, 256, "\n\n\n")
+    dataset = load_data(args.dataset, 512, 256, 128, "\n\n\n")
     # dataset = format_dataset(dataset, args.dataset_format)
 
     # # Split train/eval, reduce size
