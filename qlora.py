@@ -15,6 +15,7 @@ import logging
 import bitsandbytes as bnb
 import pandas as pd
 from datetime import datetime
+import dataclasses
 
 import torch
 import transformers
@@ -733,7 +734,8 @@ def train():
     ))
     model_args, data_args, training_args, generation_args, extra_args = \
         hfparser.parse_args_into_dataclasses(return_remaining_strings=True)
-    training_args.generation_config = transformers.GenerationConfig(**vars(generation_args))
+    training_args = dataclasses.replace(training_args, generation_config = transformers.GenerationConfig(**vars(generation_args)))
+    # training_args.generation_config = transformers.GenerationConfig(**vars(generation_args))
     args = argparse.Namespace(
         **vars(model_args), **vars(data_args), **vars(training_args)
     )
