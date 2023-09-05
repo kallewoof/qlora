@@ -305,6 +305,13 @@ def get_accelerate_model(args, checkpoint_dir):
             )
             model = get_peft_model(model, config)
 
+    try:
+        from flash_attn_monkey_patch import forward, upcast_layer_for_flash_attention
+        if model.model.layers[0].self_attn.forward.__doc__ == forward.__doc__:
+            upcast_layer_for_flash_attention(model, torch.bfloat16)
+    except:
+        ...
+
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
             if args.bf16:
