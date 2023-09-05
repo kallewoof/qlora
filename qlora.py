@@ -567,7 +567,14 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
     log("- Cutting chunks for newlines...")
     text_chunks = [cut_chunk_for_newline(chunk, newline_favor_len) for chunk in text_chunks]
     # file.write(f"================================================================================== TEXT CHUNKS NEWLINED\n\n\n{text_chunks}\n\n\n\n\n")
-    result = Dataset.from_list([tokenize(x) for x in text_chunks])
+    log("- Generating tokenization...")
+    tokenized = []
+    for chunk in text_chunks:
+        if chunk != "":
+            tokenized.append(tokenize(chunk))
+    log("- Generating dataset...")
+    result = Dataset.from_list(tokenized) # ([tokenize(x) for x in text_chunks])
+    # result = Dataset.from_list([tokenize(x) for x in text_chunks])
     del text_chunks
     log("- Done!")
     return result
