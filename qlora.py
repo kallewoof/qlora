@@ -305,19 +305,12 @@ def get_accelerate_model(args, checkpoint_dir):
             )
             model = get_peft_model(model, config)
 
-    try:
-        from flash_attn_monkey_patch import forward, upcast_layer_for_flash_attention
-        if model.model.layers[0].self_attn.forward.__doc__ == forward.__doc__:
-            upcast_layer_for_flash_attention(model, torch.bfloat16)
-    except:
-        ...
-
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
             if args.bf16:
                 module = module.to(torch.bfloat16)
         if 'norm' in name:
-            module = module.to(torch.float32)
+            module = module.to(torch.bfloat16)
         if 'lm_head' in name or 'embed_tokens' in name:
             if hasattr(module, 'weight'):
                 if args.bf16 and module.weight.dtype == torch.float32:
@@ -537,6 +530,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         elif dataset_format == 'airoboros':
             def _format_airoboros(instruction):
                 in_ = None
+                spaces = random.random() < 0.25
                 if "skip_prompt_formatting" in instruction:
                     in_ = instruction["instruction"]
                 else:
@@ -544,18 +538,18 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
                         in_ = instruction["system"].strip() + "\n"
                     else:
                         in_ = "A chat."
-                        if random.random() <= 0.3:
+                        if spaces:
                             in_ += " "
                         else:
                             in_ += "\n"
                     in_ += "USER: " + instruction["instruction"].strip()
                     if in_.endswith("PLAINFORMAT"):
                         in_ = re.sub(r"[\n\s]+PLAINFORMAT$", "", in_, re.DOTALL)
-                        if random.random() <= 0.5:
+                        if not spaces:
                             in_ += "\nPLAINFORMAT"
                         else:
                             in_ += " PLAINFORMAT"
-                    if random.random() <= 0.3:
+                    if spaces:
                         in_ += " "
                     else:
                         in_ += "\n"
