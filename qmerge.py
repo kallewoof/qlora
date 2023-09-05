@@ -30,7 +30,7 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
     'device': device to load the model to
     """
     if os.path.exists(to):
-        shutil.rmtree(to)
+        return LlamaForCausalLM.from_pretrained(to, torch_dtype=torch.bfloat16, device_map="auto")
     os.makedirs(to, exist_ok=True)
     cls = bnb.nn.Linear4bit
     with torch.no_grad():
@@ -54,11 +54,7 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
         config_data.pop("pretraining_tp", None)
         with open(os.path.join(to, 'config.json'), 'w') as config:
             config.write(json.dumps(config_data, indent=2))
-    return LlamaForCausalLM.from_pretrained(
-        to,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-    )
+        return model
 
 
 def main():
@@ -73,6 +69,7 @@ def main():
     )
     print(f"Loading base model: {model_path}")
     model = None
+    tokenizer = LlamaTokenizer.from_pretrained(model_path)
     if os.path.exists(f"{model_path}-dequantized"):
         model = LlamaForCausalLM.from_pretrained(
             f"{model_path}-dequantized",
@@ -88,12 +85,16 @@ def main():
             device_map="auto",
         )
         model = dequantize_model(model, tokenizer, to=f"{model_path}-dequantized")
-    tokenizer = LlamaTokenizer.from_pretrained(model_path)
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     print("Successfully loaded and merged model, saving...")
     model.save_pretrained(args.out)
     tokenizer.save_pretrained(args.out)
+    config_data = json.loads(open(os.path.join(args.out, 'config.json'), 'r').read())
+    config_data.pop("quantization_config", None)
+    config_data.pop("pretraining_tp", None)
+    with open(os.path.join(args.out, 'config.json'), 'w') as config:
+        config.write(json.dumps(config_data, indent=2))
     print(f"Model saved: {args.out}")
     if args.push:
         print(f"Saving to hub ...")
