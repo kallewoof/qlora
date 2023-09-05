@@ -26,11 +26,12 @@ from transformers import (
     set_seed,
     Seq2SeqTrainer,
     BitsAndBytesConfig,
-    LlamaTokenizer
-
+    LlamaTokenizer,
+    DataCollatorForLanguageModeling
 )
 from datasets import load_dataset, Dataset
 import evaluate
+import dataclasses
 
 from peft import (
     prepare_model_for_kbit_training,
@@ -310,6 +311,7 @@ def get_accelerate_model(args, checkpoint_dir):
             )
             log(f"lora config = {config}")
             model = get_peft_model(model, config)
+            log("loaded PEFT model")
 
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
@@ -321,6 +323,7 @@ def get_accelerate_model(args, checkpoint_dir):
             if hasattr(module, 'weight'):
                 if args.bf16 and module.weight.dtype == torch.float32:
                     module = module.to(torch.bfloat16)
+    log("model tweaked for bf16 stuff")
     return model
 
 def print_trainable_parameters(args, model):
@@ -362,50 +365,51 @@ def smart_tokenizer_and_embedding_resize(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
-@dataclass
-class DataCollatorForCausalLM(object):
-    tokenizer: transformers.PreTrainedTokenizer
-    model_max_len: int
+# @dataclass
+# class DataCollatorForCausalLM(object):
+#     tokenizer: transformers.PreTrainedTokenizer
+#     model_max_len: int
 
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        # Extract elements
-        sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
-        targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in instances]
+#     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+#         # Extract elements
+#         print(f"instances = {instances}")
+#         sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in instances]
+#         targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in instances]
 
-        # Tokenize
-        tokenized_sources_with_prompt = self.tokenizer(
-            sources,
-            max_length=self.model_max_len,
-            truncation=True,
-            add_special_tokens=False,
-        )
-        tokenized_targets = self.tokenizer(
-            targets,
-            max_length=self.model_max_len,
-            truncation=True,
-            add_special_tokens=False,
-        )
+#         # Tokenize
+#         tokenized_sources_with_prompt = self.tokenizer(
+#             sources,
+#             max_length=self.model_max_len,
+#             truncation=True,
+#             add_special_tokens=False,
+#         )
+#         tokenized_targets = self.tokenizer(
+#             targets,
+#             max_length=self.model_max_len,
+#             truncation=True,
+#             add_special_tokens=False,
+#         )
 
-        # Build the input and labels for causal LM
-        input_ids = []
-        labels = []
-        for tokenized_source, tokenized_target in zip(
-            tokenized_sources_with_prompt['input_ids'],
-            tokenized_targets['input_ids']
-        ):
-            input_ids.append(torch.tensor(tokenized_source + tokenized_target))
-            labels.append(
-                torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
-            )
-        # Apply padding
-        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
-        data_dict = {
-            'input_ids': input_ids,
-            'labels': labels,
-            'attention_mask':input_ids.ne(self.tokenizer.pad_token_id),
-        }
-        return data_dict
+#         # Build the input and labels for causal LM
+#         input_ids = []
+#         labels = []
+#         for tokenized_source, tokenized_target in zip(
+#             tokenized_sources_with_prompt['input_ids'],
+#             tokenized_targets['input_ids']
+#         ):
+#             input_ids.append(torch.tensor(tokenized_source + tokenized_target))
+#             labels.append(
+#                 torch.tensor([IGNORE_INDEX for _ in range(len(tokenized_source))] + copy.deepcopy(tokenized_target))
+#             )
+#         # Apply padding
+#         input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+#         labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
+#         data_dict = {
+#             'input_ids': input_ids,
+#             'labels': labels,
+#             'attention_mask':input_ids.ne(self.tokenizer.pad_token_id),
+#         }
+#         return data_dict
 
 def extract_unnatural_instructions_data(examples, extract_reformulations=False):
     out = {
@@ -473,24 +477,25 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
         for i in range(0, len(arr), step):
             yield arr[i:i + step]
     def cut_chunk_for_newline(chunk: str, max_length: int):
-        # f.write(f"cut_chunk_for_newline({chunk}, {max_length})\n")
+        assert chunk != ""
+        # print(f"cut_chunk_for_newline({chunk}, {max_length})\n")
         if '\n' not in chunk:
-            # f.write(f"no newline in chunk")
+            # print(f"no newline in chunk")
             return chunk
 
         first_newline = chunk.index('\n')
         if first_newline < max_length:
             chunk = chunk[first_newline + 1:]
-            # f.write(f"first newline at {first_newline} < {max_length}; chunk => {chunk}")
+            # print(f"first newline at {first_newline} < {max_length}; chunk => {chunk}")
 
         if '\n' not in chunk:
-            # f.write(f"no newline in chunk; done; returning {chunk}")
+            # print(f"no newline in chunk; done; returning {chunk}")
             return chunk
 
         last_newline = chunk.rindex('\n')
         if len(chunk) - last_newline < max_length:
             chunk = chunk[:last_newline]
-            # f.write(f"last newline at {last_newline} < {max_length}; chunk => {chunk}")
+            # print(f"last newline at {last_newline} < {max_length}; chunk => {chunk}")
 
         return chunk
 
@@ -532,7 +537,12 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
     log("- Cutting chunks for newlines...")
     text_chunks = [cut_chunk_for_newline(chunk, newline_favor_len) for chunk in text_chunks]
     # file.write(f"================================================================================== TEXT CHUNKS NEWLINED\n\n\n{text_chunks}\n\n\n\n\n")
-    result = Dataset.from_list([tokenize(x) for x in text_chunks])
+    tokenized = []
+    for chunk in text_chunks:
+        if chunk != "":
+            tokenized.append(tokenize(chunk))
+    log("- Generating dataset...")
+    result = Dataset.from_list(tokenized) # ([tokenize(x) for x in text_chunks])
     del text_chunks
     log("- Done!")
     return result
@@ -708,10 +718,12 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
     #     lambda x: _get_data_length(x) < args.model_max_len - 10
     # )
     
-    data_collator = DataCollatorForCausalLM(
-        tokenizer=tokenizer,
-        model_max_len=args.model_max_len,
-    )
+    data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    # data_collator = DataCollatorForCausalLM(
+    #     tokenizer=tokenizer,
+    #     model_max_len=args.model_max_len,
+    # )
+    # data_collator.__call__(train_dataset[:2])
     return dict(
         train_dataset=train_dataset if args.do_train else None,
         # eval_dataset=eval_dataset if args.do_eval else None,
@@ -739,7 +751,7 @@ def train():
     ))
     model_args, data_args, training_args, generation_args, extra_args = \
         hfparser.parse_args_into_dataclasses(return_remaining_strings=True)
-    training_args.generation_config = transformers.GenerationConfig(**vars(generation_args))
+    training_args = dataclasses.replace(training_args, generation_config = transformers.GenerationConfig(**vars(generation_args)))
     args = argparse.Namespace(
         **vars(model_args), **vars(data_args), **vars(training_args)
     )
@@ -747,13 +759,6 @@ def train():
     checkpoint_dir, completed_training = get_last_checkpoint(args.output_dir)
     if completed_training:
         print('Detected that training was already completed!')
-
-    model = get_accelerate_model(args, checkpoint_dir)
-
-    model.config.use_cache = False
-    print_trainable_parameters(args, model)
-    log('loaded model')
-    set_seed(args.seed)
 
     # Tokenizer
     tokenizer_kwargs = {
@@ -768,6 +773,14 @@ def train():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = 0
     data_module = make_data_module(tokenizer=tokenizer, args=args)
+
+    model = get_accelerate_model(args, checkpoint_dir)
+
+    model.config.use_cache = False
+    print_trainable_parameters(args, model)
+    log('loaded model')
+    set_seed(args.seed)
+
     trainer = Seq2SeqTrainer(
         model=model,
         tokenizer=tokenizer,
