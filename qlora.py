@@ -288,11 +288,21 @@ def get_accelerate_model(args, checkpoint_dir):
     setattr(model, 'is_parallelizable', True)
 
     model.config.torch_dtype=(torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
+    print(f"torch_dtype = {model.config.torch_dtype}")
 
     if not args.full_finetune:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=args.gradient_checkpointing)
     if args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
+
+    # LlamaRMSNorm layers are in fp32 after kbit_training, so we need to
+    # convert them back to fp16/bf16 for flash-attn compatibility.
+    for name, module in model.named_modules():
+        if "norm" in name:
+            module.to(model.config.torch_dtype)
+        if "lm_head" in name or "embed_tokens" in name:
+            if hasattr(module, "weight"):
+                module.to(model.config.torch_dtype)
 
     if not args.full_finetune:
         if checkpoint_dir is not None:
@@ -317,8 +327,8 @@ def get_accelerate_model(args, checkpoint_dir):
         if isinstance(module, LoraLayer):
             if args.bf16:
                 module = module.to(torch.bfloat16)
-        if 'norm' in name:
-            module = module.to(torch.float32)
+        # if 'norm' in name:
+        #     module = module.to(torch.float32)
         if 'lm_head' in name or 'embed_tokens' in name:
             if hasattr(module, 'weight'):
                 if args.bf16 and module.weight.dtype == torch.float32:
@@ -502,6 +512,10 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
     log("- Reading raw data file...")
     with open(raw_data_path, "r", encoding='utf-8') as file:
         raw_text = file.read().replace("\r", "")
+
+    # For testing we only keep the first 40k
+    log(f"TESTING: keeping only first 40k characters of {len(raw_text)} characters")
+    raw_text = raw_text[:40000]
 
     cut_string = hard_cut_string.replace('\\n', '\n')
     out_tokens = []
