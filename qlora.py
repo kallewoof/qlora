@@ -5,6 +5,7 @@ from collections import defaultdict
 import copy
 import json
 import os
+import re
 from os.path import exists, join, isdir
 from dataclasses import dataclass, field
 import sys
