@@ -22,7 +22,7 @@ from torch.nn.utils.rnn import pad_sequence
 import argparse
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLM,
+    # AutoModelForCausalLM,
     set_seed,
     Seq2SeqTrainer,
     BitsAndBytesConfig,
@@ -41,6 +41,7 @@ from peft import (
 from peft.tuners.lora import LoraLayer
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
+from petals import AutoDistributedModelForCausalLM
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -199,6 +200,7 @@ def find_all_linear_names(args, model):
     cls = bnb.nn.Linear4bit if args.bits == 4 else (bnb.nn.Linear8bitLt if args.bits == 8 else torch.nn.Linear)
     lora_module_names = set()
     for name, module in model.named_modules():
+        print(f"{name} is {module.__class__}")
         if isinstance(module, cls):
             names = name.split('.')
             lora_module_names.add(names[0] if len(names) == 1 else names[-1])
@@ -238,55 +240,62 @@ class SavePeftModelCallback(transformers.TrainerCallback):
 
 def get_accelerate_model(args, checkpoint_dir):
 
-    n_gpus = torch.cuda.device_count()
-    max_memory = f'{args.max_memory_MB}MB'
-    max_memory = {i: max_memory for i in range(n_gpus)}
-    device_map = "auto"
+    # n_gpus = torch.cuda.device_count()
+    # max_memory = f'{args.max_memory_MB}MB'
+    # max_memory = {i: max_memory for i in range(n_gpus)}
+    # device_map = "auto"
 
-    # if we are in a distributed setting, we need to set the device map and max memory per device
-    if os.environ.get('LOCAL_RANK') is not None:
-        local_rank = int(os.environ.get('LOCAL_RANK', '0'))
-        device_map = {'': f'cuda:{local_rank}'}
-        max_memory = {'': max_memory[local_rank]}
+    # # if we are in a distributed setting, we need to set the device map and max memory per device
+    # if os.environ.get('LOCAL_RANK') is not None:
+    #     local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+    #     device_map = {'': f'cuda:{local_rank}'}
+    #     max_memory = {'': max_memory[local_rank]}
 
 
-    if args.full_finetune: assert args.bits in [16, 32]
+    # if args.full_finetune: assert args.bits in [16, 32]
 
-    log(f'loading base model {args.model_name_or_path}...')
-    compute_dtype = (torch.float16 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
-    model_kwargs = {
-        "cache_dir": args.cache_dir,
-        "load_in_4bit": args.bits == 4,
-        "load_in_8bit": args.bits == 8,
-        "device_map": device_map,
-        "max_memory": max_memory,
-        "quantization_config": BitsAndBytesConfig(
-            load_in_4bit=args.bits == 4,
-            load_in_8bit=args.bits == 8,
-            llm_int8_threshold=6.0,
-            llm_int8_has_fp16_weight=False,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=args.double_quant,
-            bnb_4bit_quant_type=args.quant_type,
-        ),
-        "torch_dtype": (torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32)),
-        "trust_remote_code": args.trust_remote_code,
-        "use_auth_token": args.use_auth_token
-    }
-    if args.mpt:
-        model_kwargs["attn_config"] = {"attn_impl": "triton"}
-    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **model_kwargs)
-    if compute_dtype == torch.float16 and args.bits == 4:
-        major, minor = torch.cuda.get_device_capability()
-        if major >= 8:
-            print('='*80)
-            print('Your GPU supports bfloat16, you can accelerate training with the argument --bf16')
-            print('='*80)
+    # log(f'loading base model {args.model_name_or_path}...')
+    # compute_dtype = (torch.float16 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
+    # model_kwargs = {
+    #     "cache_dir": args.cache_dir,
+    #     "load_in_4bit": args.bits == 4,
+    #     "load_in_8bit": args.bits == 8,
+    #     "device_map": device_map,
+    #     "max_memory": max_memory,
+    #     "quantization_config": BitsAndBytesConfig(
+    #         load_in_4bit=args.bits == 4,
+    #         load_in_8bit=args.bits == 8,
+    #         llm_int8_threshold=6.0,
+    #         llm_int8_has_fp16_weight=False,
+    #         bnb_4bit_compute_dtype=compute_dtype,
+    #         bnb_4bit_use_double_quant=args.double_quant,
+    #         bnb_4bit_quant_type=args.quant_type,
+    #     ),
+    #     "torch_dtype": (torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32)),
+    #     "trust_remote_code": args.trust_remote_code,
+    #     "use_auth_token": args.use_auth_token
+    # }
+    # if args.mpt:
+    #     model_kwargs["attn_config"] = {"attn_impl": "triton"}
+    # model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **model_kwargs)
+    # if compute_dtype == torch.float16 and args.bits == 4:
+    #     major, minor = torch.cuda.get_device_capability()
+    #     if major >= 8:
+    #         print('='*80)
+    #         print('Your GPU supports bfloat16, you can accelerate training with the argument --bf16')
+    #         print('='*80)
 
-    setattr(model, 'model_parallel', True)
-    setattr(model, 'is_parallelizable', True)
+    # setattr(model, 'model_parallel', True)
+    # setattr(model, 'is_parallelizable', True)
 
-    model.config.torch_dtype=(torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
+    # model.config.torch_dtype=(torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
+
+    with open("initial-peer.txt", "r") as f:
+        peer = r.read()
+    INITIAL_PEERS = [
+        peer
+    ]
+    model = AutoDistributedModelForCausalLM.from_pretrained("TheBloke/Llama-2-70B-fp16", initial_peers=INITIAL_PEERS)
 
     if not args.full_finetune:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=args.gradient_checkpointing)
@@ -299,6 +308,7 @@ def get_accelerate_model(args, checkpoint_dir):
             model = PeftModel.from_pretrained(model, join(checkpoint_dir, 'adapter_model'), is_trainable=True)
         else:
             log(f'adding LoRA modules...')
+            # modules = ["q_proj", "down_proj", "k_proj", "gate_proj", "v_proj", "up_proj", "o_proj" ]
             modules = find_all_linear_names(args, model)
             config = LoraConfig(
                 r=args.lora_r,
@@ -310,6 +320,7 @@ def get_accelerate_model(args, checkpoint_dir):
             )
             log(f"lora config = {config}")
             model = get_peft_model(model, config)
+            log("loaded PEFT model")
 
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
@@ -321,6 +332,7 @@ def get_accelerate_model(args, checkpoint_dir):
             if hasattr(module, 'weight'):
                 if args.bf16 and module.weight.dtype == torch.float32:
                     module = module.to(torch.bfloat16)
+    log("model tweaked for bf16 stuff")
     return model
 
 def print_trainable_parameters(args, model):
@@ -669,7 +681,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset, 512, 256, 128, "\n\n\n")
+    dataset = load_data(args.dataset, 4096, 2048, 512, "\n\n\n")
     # dataset = format_dataset(dataset, args.dataset_format)
 
     # # Split train/eval, reduce size
