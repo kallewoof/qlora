@@ -42,6 +42,7 @@ from peft.tuners.lora import LoraLayer
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
 from petals import AutoDistributedModelForCausalLM
+from petals.utils.peft import create_lora_adapter
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -199,11 +200,12 @@ class GenerationArguments:
 def find_all_linear_names(args, model):
     cls = bnb.nn.Linear4bit if args.bits == 4 else (bnb.nn.Linear8bitLt if args.bits == 8 else torch.nn.Linear)
     lora_module_names = set()
-    for name, module in model.named_modules():
-        print(f"{name} is {module.__class__}")
-        if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+    for _, module_poop in model.named_modules():
+        for name, module in module_poop.named_children():
+            print(f"{name} is {module.__class__}")
+            if isinstance(module, cls):
+                names = name.split('.')
+                lora_module_names.add(names[0] if len(names) == 1 else names[-1])
 
 
     if 'lm_head' in lora_module_names: # needed for 16-bit
@@ -291,7 +293,8 @@ def get_accelerate_model(args, checkpoint_dir):
     # model.config.torch_dtype=(torch.float32 if args.fp16 else (torch.bfloat16 if args.bf16 else torch.float32))
 
     with open("initial-peer.txt", "r") as f:
-        peer = r.read()
+        peer = f.read().strip()
+    print(f"peer = \"{peer}\"")
     INITIAL_PEERS = [
         peer
     ]
@@ -309,7 +312,8 @@ def get_accelerate_model(args, checkpoint_dir):
         else:
             log(f'adding LoRA modules...')
             # modules = ["q_proj", "down_proj", "k_proj", "gate_proj", "v_proj", "up_proj", "o_proj" ]
-            modules = find_all_linear_names(args, model)
+            modules = ["q_proj", "k_proj"]
+            # modules = find_all_linear_names(args, model)
             config = LoraConfig(
                 r=args.lora_r,
                 lora_alpha=args.lora_alpha,
