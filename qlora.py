@@ -49,6 +49,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
+DEFAULT_PAD_TOKEN = "<pad>"
 
 def log(s):
     # print YYYY-MM-DD HH:MM:SS s
@@ -570,7 +571,7 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
     log("- Done!")
     return result
 
-def local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
+def local_dataset(dataset_name, test_size, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
     if dataset_name.endswith(('.json', '.jsonl')):
         full_dataset = Dataset.from_json(path_or_paths=dataset_name)
     elif dataset_name.endswith('.csv'):
@@ -584,8 +585,8 @@ def local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favo
 
     if 'category' in full_dataset.column_names:
         full_dataset = full_dataset.class_encode_column('category')
-        return full_dataset.train_test_split(test_size=0.02, stratify_by_column='category')
-    return full_dataset.train_test_split(test_size=0.02)
+        return full_dataset.train_test_split(test_size=test_size, stratify_by_column='category')
+    return full_dataset.train_test_split(test_size=test_size)
 
 def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
     """
@@ -611,7 +612,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         - vicuna
 
     """
-    def load_data(dataset_name, cutoff_len, overlap_len, newline_favor_len, hard_cut_string):
+    def load_data(dataset_name):
         if dataset_name == 'alpaca':
             return load_dataset("tatsu-lab/alpaca")
         elif dataset_name == 'alpaca-clean':
@@ -632,7 +633,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             if os.path.exists(dataset_name):
                 try:
                     args.dataset_format = args.dataset_format if args.dataset_format else "input-output"
-                    full_dataset = local_dataset(dataset_name, tokenizer, cutoff_len, overlap_len, newline_favor_len, hard_cut_string)
+                    full_dataset = local_dataset(dataset_name, args.eval_dataset_size, tokenizer, args.cutoff_len, args.overlap_len, args.newline_favor_len, args.hard_cut_string)
                     return full_dataset
                 except:
                     raise ValueError(f"Error loading dataset from {dataset_name}")
@@ -783,20 +784,25 @@ def train():
 
     # Tokenizer
     tokenizer_kwargs = {
-        "cache_dir": args.cache_dir,
         "padding_side": "right",
-        "use_fast": False,
+        "use_fast": True,
     }
     if args.mpt:
         tokenizer_kwargs["padding_side"] = "left"
         tokenizer_kwargs.pop("use_fast")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, **tokenizer_kwargs)
+    if tokenizer._pad_token is None:
+        smart_tokenizer_and_embedding_resize(
+            special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
+            tokenizer=tokenizer,
+            model=model,
+        )
+
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = 0
     data_module = make_data_module(tokenizer=tokenizer, args=args)
 
     model = get_accelerate_model(args, checkpoint_dir)
-
     model.config.use_cache = False
     if not args.deepspeed:
         print_trainable_parameters(args, model)
@@ -875,13 +881,12 @@ def train():
         state_dict = trainer.model.state_dict()
         cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
         trainer.model.save_pretrained(args.output_dir, state_dict=cpu_state_dict, max_shard_size=args.max_shard_size)
-        tokenizer.save_pretrained(args.output_dir)
         with open(os.path.join(args.output_dir, "config.json")) as infile:
             config = json.loads(infile.read())
         config["_name_or_path"] = os.path.basename(args.output_dir)
         with open(os.path.join(args.output_dir, "config.json"), "w") as outfile:
             outfile.write(json.dumps(config, indent=2))
-
+    tokenizer.save_pretrained(args.output_dir)
 
 if __name__ == "__main__":
     train()
