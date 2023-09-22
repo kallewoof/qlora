@@ -58,6 +58,12 @@ def dequantize_model(model, tokenizer, to, dtype=torch.bfloat16, device="cuda"):
 
 
 def main():
+    n_gpus = torch.cuda.device_count()
+    max_memory = f'11500MB'
+    max_memory = {i: max_memory for i in range(n_gpus)}
+    max_memory["cpu"] = "200000MB"
+    device_map = "auto"
+
     args = get_args()
     model_path = args.base
     adapter_path = args.peft
@@ -70,11 +76,13 @@ def main():
     print(f"Loading base model: {model_path}")
     model = None
     tokenizer = LlamaTokenizer.from_pretrained(model_path)
-    if os.path.exists(f"{model_path}-dequantized"):
+    if not os.path.exists(f"{model_path}-dequantized"):
         model = LlamaForCausalLM.from_pretrained(
-            f"{model_path}-dequantized",
+            model_path, # f"{model_path}-dequantized",
             torch_dtype=torch.bfloat16,
-            device_map="auto",
+            #device_map="auto",
+            device_map=device_map,
+            max_memory=max_memory,
         )
     else:
         model = LlamaForCausalLM.from_pretrained(

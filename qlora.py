@@ -245,6 +245,7 @@ def get_accelerate_model(args, checkpoint_dir):
     n_gpus = torch.cuda.device_count()
     max_memory = f'{args.max_memory_MB}MB'
     max_memory = {i: max_memory for i in range(n_gpus)}
+    print(f"max_memory = {max_memory}")
     device_map = "auto"
 
     # if we are in a distributed setting, we need to set the device map and max memory per device
@@ -355,7 +356,7 @@ def print_trainable_parameters(args, model):
         if param.requires_grad:
             trainable_params += param.numel()
     if args.bits == 4: trainable_params /= 2
-    print(
+    log(
         f"trainable params: {trainable_params} || "
         f"all params: {all_param} || "
         f"trainable: {100 * trainable_params / all_param}"
@@ -522,8 +523,8 @@ def prep_raw_file(raw_data_path, tokenizer, cutoff_len, overlap_len, newline_fav
         raw_text = file.read().replace("\r", "")
 
     # For testing we only keep the first 40k
-    log(f"TESTING: keeping only first 40k characters of {len(raw_text)} characters")
-    raw_text = raw_text[:40000]
+    # log(f"TESTING: keeping only first 100k characters of {len(raw_text)} characters")
+    # raw_text = raw_text[:100000]
 
     cut_string = hard_cut_string.replace('\\n', '\n')
     out_tokens = []
@@ -780,8 +781,6 @@ def train():
     if completed_training:
         print('Detected that training was already completed!')
 
-    model = get_accelerate_model(args, checkpoint_dir)
-
     # Tokenizer
     tokenizer_kwargs = {
         "cache_dir": args.cache_dir,
@@ -833,6 +832,7 @@ def train():
         logger.info("*** Train ***")
         # Note: `resume_from_checkpoint` not supported for adapter checkpoints by HF.
         # Currently adapter checkpoint is reloaded as expected but optimizer/scheduler states are not.
+        torch.cuda.empty_cache()
         train_result = trainer.train()
         metrics = train_result.metrics
         trainer.log_metrics("train", metrics)
