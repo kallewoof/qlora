@@ -100,6 +100,22 @@ class DataArguments:
         default=None,
         metadata={"help": "Which dataset format is used. [alpaca|chip2|self-instruct|hh-rlhf]"}
     )
+    cutoff_len: int = field(
+        default=256,
+        metadata={"help": "Cutoff length for training data."}
+    )
+    overlap_len: int = field(
+        default=128,
+        metadata={"help": "Overlap length for training data."}
+    )
+    newline_favor_len: int = field(
+        default=128,
+        metadata={"help": "Newline favor length for training data."}
+    )
+    hard_cut_string: str = field(
+        default='\\n\\n\\n',
+        metadata={"help": "Hard cut string for training data."}
+    )
 
 @dataclass
 class TrainingArguments(transformers.Seq2SeqTrainingArguments):
@@ -159,6 +175,7 @@ class TrainingArguments(transformers.Seq2SeqTrainingArguments):
     gradient_checkpointing: bool = field(default=False, metadata={"help": 'Use gradient checkpointing. You want to use this.'})
     do_train: bool = field(default=True, metadata={"help": 'To train or not to train, that is the question?'})
     lr_scheduler_type: str = field(default='constant', metadata={"help": 'Learning rate schedule. Constant a bit better than cosine, and has advantage for analysis'})
+
     warmup_ratio: float = field(default=0.03, metadata={"help": 'Fraction of steps to do a warmup for'})
     logging_steps: int = field(default=10, metadata={"help": 'The frequency of update steps after which to log the loss'})
     group_by_length: bool = field(default=True, metadata={"help": 'Group sequences into batches with same length. Saves memory and speeds up training considerably.'})
@@ -693,7 +710,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
      # Load dataset.
-    dataset = load_data(args.dataset, 512, 256, 128, "\n\n\n")
+    dataset = load_data(args.dataset)
     # dataset = format_dataset(dataset, args.dataset_format)
 
     # # Split train/eval, reduce size
@@ -782,16 +799,20 @@ def train():
     if completed_training:
         print('Detected that training was already completed!')
 
+    model = None
+
     # Tokenizer
     tokenizer_kwargs = {
         "padding_side": "right",
-        "use_fast": True,
+        "use_fast": False,
+        "tokenizer_type": "llama",
     }
     if args.mpt:
         tokenizer_kwargs["padding_side"] = "left"
         tokenizer_kwargs.pop("use_fast")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, **tokenizer_kwargs)
     if tokenizer._pad_token is None:
+        model = get_accelerate_model(args, checkpoint_dir)
         smart_tokenizer_and_embedding_resize(
             special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
             tokenizer=tokenizer,
@@ -799,10 +820,14 @@ def train():
         )
 
     if tokenizer.pad_token_id is None:
+        if model is None:
+            model = get_accelerate_model(args, checkpoint_dir)
         tokenizer.pad_token_id = 0
     data_module = make_data_module(tokenizer=tokenizer, args=args)
 
-    model = get_accelerate_model(args, checkpoint_dir)
+    if model is None:
+        model = get_accelerate_model(args, checkpoint_dir)
+
     model.config.use_cache = False
     if not args.deepspeed:
         print_trainable_parameters(args, model)

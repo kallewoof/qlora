@@ -22,7 +22,7 @@ def main():
         return_dict=True,
         torch_dtype=torch.bfloat16,
         device_map="auto",
-        # offload_folder="offload",
+        offload_folder="offload",
     )
     print(f"Loading PEFT: {args.peft}")
     model = PeftModel.from_pretrained(base_model, args.peft, offload_folder="offload2")
