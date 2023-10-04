@@ -13,7 +13,7 @@ datasets:
   - path: prepared-dataset.jsonl
     ds_type: json
     type: completion
-    overlap_len: 256
+    overlap_len: 512
 dataset_prepared_path: last_run_prepared
 val_set_size: 0
 output_dir: ./qlora-out
@@ -22,7 +22,7 @@ adapter: qlora
 lora_model_dir:
 
 sequence_len: 2048
-sample_packing: false
+sample_packing: true
 pad_to_sequence_len: true
 
 lora_r: 16
