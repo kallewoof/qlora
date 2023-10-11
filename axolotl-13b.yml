@@ -14,8 +14,8 @@ datasets:
   - path: prepared-dataset.jsonl
     ds_type: json
     type: completion
-    overlap_len: 256
-    min_sample_len: 128
+    overlap_len: 512
+    min_sample_len: 512
 dataset_prepared_path: last_run_prepared
 val_set_size: 0
 output_dir: ./qlora-out
@@ -28,8 +28,8 @@ sample_packing: false
 pad_to_sequence_len: true
 
 lora_r: 16
-lora_alpha: 32
-lora_dropout: 0.05
+lora_alpha: 16
+lora_dropout: 0.01
 lora_target_modules:
 lora_target_linear: true
 lora_fan_in_fan_out:
@@ -44,8 +44,8 @@ gradient_accumulation_steps: 1
 micro_batch_size: 1
 num_epochs: 1
 optimizer: paged_adamw_32bit
-lr_scheduler: cosine
-learning_rate: 0.0005
+lr_scheduler: linear
+learning_rate: 0.00035
 
 train_on_inputs: true
 group_by_length: false
@@ -60,6 +60,7 @@ local_rank:
 logging_steps: 1
 xformers_attention:
 flash_attention: true
+safe_serialization: true
 
 warmup_steps: 5
 # eval_steps: 32

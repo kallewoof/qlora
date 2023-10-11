@@ -41,7 +41,7 @@ wandb_run_id:
 wandb_log_model:
 
 gradient_accumulation_steps: 1
-micro_batch_size: 1
+micro_batch_size: 4
 num_epochs: 1
 optimizer: paged_adamw_32bit
 lr_scheduler: linear
@@ -59,8 +59,8 @@ resume_from_checkpoint:
 local_rank:
 logging_steps: 1
 xformers_attention:
-# flash_attention: true
-torch_dtype: float16
+flash_attention: true
+# torch_dtype: float16
 safe_serialization: true
 
 warmup_steps: 5
