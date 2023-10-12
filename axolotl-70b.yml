@@ -17,7 +17,7 @@ datasets:
     overlap_len: 512
     min_sample_len: 512
 dataset_prepared_path: last_run_prepared
-val_set_size: 0
+val_set_size: 0.01
 output_dir: ./qlora-out
 
 adapter: qlora
@@ -56,16 +56,17 @@ tf32: false
 gradient_checkpointing: true
 early_stopping_patience:
 resume_from_checkpoint:
+auto_resume_from_checkpoint: true
 local_rank:
 logging_steps: 1
 xformers_attention:
-# flash_attention: true
-torch_dtype: float16
+flash_attention: true
+# torch_dtype: float16
 safe_serialization: true
 
 warmup_steps: 5
-# eval_steps: 32
-# eval_table_size:
+eval_steps: 32
+eval_table_size:
 save_steps: 16
 debug:
 deepspeed:

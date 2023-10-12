@@ -19,7 +19,9 @@ if [ -z "$last_checkpoint_dir" ]; then
     exit 1
 fi
 
-cp last_checkpoint_dir/trainer_state.json $logdir
+cp $last_checkpoint_dir/trainer_state.json $logdir
 
 # Copy the lora adapter
 cp qlora-out/adapter* $logdir
+
+touch $logdir/.posttrainlog
