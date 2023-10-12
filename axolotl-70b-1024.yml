@@ -16,6 +16,7 @@ datasets:
     type: completion
     overlap_len: 128
     min_sample_len: 256
+    discard_portion: 0.5
 dataset_prepared_path: last_run_prepared
 val_set_size: 0.01
 output_dir: ./qlora-out

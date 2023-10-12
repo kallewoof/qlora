@@ -15,6 +15,7 @@ datasets:
     ds_type: json
     type: completion
     min_sample_len: 64
+    discard_portion: 0.6
 dataset_prepared_path: last_run_prepared
 val_set_size: 0.01
 output_dir: ./qlora-out
