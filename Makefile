@@ -88,4 +88,11 @@ axolotl_bin:
 	python -m axolotl.cli.train ./axolotl-70b.yml | tee tlogs/latest/train-final.log
 	./posttrainlog.sh 70b
 
+derivative-models/%: FORCE
+	rm curr-model
+	ln -s $@ curr-model
+	python -m axolotl.cli.merge_lora axolotl-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-lora --load_in_8bit=False --load_in_4bit=False
+
+FORCE: ;
+
 all: dataset axolotl_bin
