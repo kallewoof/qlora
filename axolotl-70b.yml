@@ -67,9 +67,9 @@ flash_attention: true
 safe_serialization: true
 
 warmup_steps: 5
-eval_steps: 64
+eval_steps: 128
 eval_table_size:
-save_steps: 64
+save_steps: 128
 debug:
 deepspeed:
 weight_decay: 0.0
