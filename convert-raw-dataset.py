@@ -40,8 +40,8 @@ for filename in os.listdir(dataset_dir):
             story = re.sub(r"-{4,}", "---", story)
             results.append(story)
 
-# Shuffle results
-random.shuffle(results)
+# # Shuffle results
+# random.shuffle(results)
 
 # Open the output file
 with open(output_jsonl, "w") as output_file:

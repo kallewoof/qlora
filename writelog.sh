@@ -12,6 +12,7 @@ logdir="tlogs/$logname"
 logfile="$logdir/log.txt"
 
 mkdir -p $logdir
+echo "$logname" > $logdir/.logname
 echo "Training session started at $(date)" > $logfile
 
 rm tlogs/latest

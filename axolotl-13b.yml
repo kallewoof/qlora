@@ -14,8 +14,8 @@ datasets:
   - path: prepared-dataset.jsonl
     ds_type: json
     type: completion
-    overlap_len: 512
-    min_sample_len: 512
+    overlap_len: 2500
+    min_sample_len: 1000
 dataset_prepared_path: last_run_prepared
 val_set_size: 0.01
 output_dir: ./qlora-out
@@ -23,16 +23,17 @@ output_dir: ./qlora-out
 adapter: qlora
 lora_model_dir:
 
-sequence_len: 2048
+sequence_len: 4096
 sample_packing: false
 pad_to_sequence_len: true
 
-lora_r: 16
-lora_alpha: 16
+lora_r: 64
+lora_alpha: 128
 lora_dropout: 0.01
 lora_target_modules:
 lora_target_linear: true
 lora_fan_in_fan_out:
+noisy_embedding_alpha: 5
 
 wandb_project:
 wandb_entity:
@@ -44,8 +45,8 @@ gradient_accumulation_steps: 1
 micro_batch_size: 1
 num_epochs: 1
 optimizer: paged_adamw_32bit
-lr_scheduler: linear
-learning_rate: 0.00035
+lr_scheduler: cosine
+learning_rate: 0.0002
 
 train_on_inputs: true
 group_by_length: false
@@ -55,7 +56,8 @@ tf32: false
 
 gradient_checkpointing: true
 early_stopping_patience:
-resume_from_checkpoint:
+# resume_from_checkpoint:
+auto_resume_from_checkpoints: true
 local_rank:
 logging_steps: 1
 xformers_attention:
@@ -65,7 +67,7 @@ safe_serialization: true
 warmup_steps: 5
 eval_steps: 32
 eval_table_size:
-save_steps: 64
+save_steps: 32
 debug:
 deepspeed:
 weight_decay: 0.0
