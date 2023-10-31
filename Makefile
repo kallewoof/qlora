@@ -3,6 +3,11 @@ dataset:
 	python ./convert-raw-dataset.py
 	rm -rf last_run_prepared
 
+cabb_eval_dataset:
+	make -C ../private-datasets/sbbpck-instruct/cabb
+	cp ../private-datasets/sbbpck-instruct/cabb/curated.jsonl ./cabb-curated-dataset.jsonl
+	rm -rf last_run_prepared_cabb_eval
+
 axolotl_bin:
 	cd ../axolotl && pip3 install -e '.[flash-attn,deepspeed]' --no-deps
 
@@ -88,10 +93,23 @@ axolotl_bin:
 	python -m axolotl.cli.train ./axolotl-70b.yml | tee tlogs/latest/train-final.log
 	./posttrainlog.sh 70b
 
+cabb-eval-70b: cabb_eval_dataset axolotl_bin
+	rm curr-model
+	ln -s base-models/llama2-70b curr-model
+	./writelog.sh cabb-eval-70b
+	python -m axolotl.cli.train ./axolotl-cabb-eval-70b.yml | tee tlogs/latest/train-cabb-eval.log
+	./posttrainlog.sh cabb-eval-70b
+
 derivative-models/%: FORCE
 	rm curr-model
 	ln -s $@ curr-model
 	python -m axolotl.cli.merge_lora axolotl-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-lora --load_in_8bit=False --load_in_4bit=False
+
+derivative-cabb-models/%: FORCE
+	rm curr-model
+	ln -s $@ curr-model
+	python -m axolotl.cli.merge_lora axolotl-cabb-eval-70b.yml --lora_model_dir=./cabb-eval-out --load_in_8bit=False --load_in_4bit=False
+
 
 FORCE: ;
 
