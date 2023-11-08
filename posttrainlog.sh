@@ -12,8 +12,13 @@ fi
 
 echo -e "\n\n==========================================\nPost-training information:" >> $logfile
 
+qloraout="qlora-out"
+if [ "$1" = "mistral-7b" ]; then
+    qloraout="mistral-out"
+fi
+
 # Find the last checkpoint
-last_checkpoint_dir=$(ls -d qlora-out/checkpoint-* -v | tail -n 1)
+last_checkpoint_dir=$(ls -d $qloraout/checkpoint-* -v | tail -n 1)
 if [ -z "$last_checkpoint_dir" ]; then
     echo "No checkpoints found"
     exit 1
@@ -22,6 +27,6 @@ fi
 cp $last_checkpoint_dir/trainer_state.json $logdir
 
 # Copy the lora adapter
-cp qlora-out/adapter* $logdir
+cp $qloraout/adapter* $logdir
 
 touch $logdir/.posttrainlog

@@ -16,7 +16,7 @@ axolotl_bin:
 	ln -s base-models/mistral-7b curr-model
 	./writelog.sh mistral-7b
 	python -m axolotl.cli.train ./axolotl-mistral-7b.yml | tee tlogs/latest/accelerate.log
-	./posttrainlog.sh 7b
+	./posttrainlog.sh mistral-7b
 
 13b: dataset axolotl_bin
 	rm -f curr-model
