@@ -38,6 +38,13 @@ axolotl_bin:
 	accelerate launch -m axolotl.cli.train ./axolotl-20b.yml | tee tlogs/latest/accelerate.log
 	./posttrainlog.sh 20b
 
+34b-yi: dataset axolotl_bin
+	rm -f curr-model
+	ln -s base-models/llama2-yi-34b curr-model
+	./writelog.sh yi-34b
+	python -m axolotl.cli.train ./axolotl-yi-34b.yml | tee tlogs/latest/accelerate.log
+	./posttrainlog.sh yi-34b
+
 70b-layered-256: dataset axolotl_bin
 	python ./truncate-dataset.py 0.30
 	rm -f curr-model
