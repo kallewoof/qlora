@@ -115,17 +115,22 @@ cabb-eval-70b: cabb_eval_dataset axolotl_bin
 	python -m axolotl.cli.train ./axolotl-cabb-eval-70b.yml | tee tlogs/latest/train-cabb-eval.log
 	./posttrainlog.sh cabb-eval-70b
 
-derivative-models/%: FORCE
+derivative-yi-models/%: axolotl_bin FORCE
+	rm -f curr-model
+	ln -s $@ curr-model
+	python -m axolotl.cli.merge_lora axolotl-yi-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-yi-lora --load_in_8bit=False --load_in_4bit=False
+
+derivative-models/%: axolotl_bin FORCE
 	rm -f curr-model
 	ln -s $@ curr-model
 	python -m axolotl.cli.merge_lora axolotl-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-lora --load_in_8bit=False --load_in_4bit=False
 
-derivative-mistral-models/%: FORCE
+derivative-mistral-models/%: axolotl_bin FORCE
 	rm -f curr-model
 	ln -s $@ curr-model
 	python -m axolotl.cli.merge_lora axolotl-mistral-7b.yml --lora_model_dir=./curr-mistral-lora --load_in_8bit=False --load_in_4bit=False
 
-derivative-cabb-models/%: FORCE
+derivative-cabb-models/%: axolotl_bin FORCE
 	rm -f curr-model
 	ln -s $@ curr-model
 	python -m axolotl.cli.merge_lora axolotl-cabb-eval-70b.yml --lora_model_dir=./cabb-eval-out --load_in_8bit=False --load_in_4bit=False
