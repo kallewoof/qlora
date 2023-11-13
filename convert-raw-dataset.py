@@ -12,10 +12,13 @@ curr_dir = os.path.dirname(os.path.realpath(__file__))
 dataset_dir = os.path.join(curr_dir, "curr-dataset")
 # Get the directory of the output
 output_jsonl = os.path.join(curr_dir, "prepared-dataset.jsonl")
+instr_output_jsonl = os.path.join(curr_dir, "prepared-instr-dataset.jsonl")
+instr_output = open(instr_output_jsonl, "w")
 
 results = []
 
 # Iterate over each file in the dataset directory
+entries = 0
 for filename in os.listdir(dataset_dir):
     # Get the path of the file
     filepath = os.path.join(dataset_dir, filename)
@@ -23,6 +26,12 @@ for filename in os.listdir(dataset_dir):
     with open(filepath, "r") as file:
         # Read the file
         text = file.read()
+        # The file may already by jsonl, in which case it is an instruction finetune component, and we need to merge it with the instruction set
+        if filepath.endswith(".jsonl"):
+            # Write the contents as is into the instruction set
+            entries += len(text.split("\n"))
+            instr_output.write(text)
+            continue
         # Clean the file up a little
         # Consider triple newline as new story
         stories = text.split("\n\n\n")
@@ -39,6 +48,17 @@ for filename in os.listdir(dataset_dir):
             # Replace 4+ dashes with 3 dashes
             story = re.sub(r"-{4,}", "---", story)
             results.append(story)
+            entries += 1
+
+# Include a shuffled count of 2x the entries from the no_robots dataset
+with open('public-datasets/no_robots/output.train_sft.jsonl', 'r') as file:
+    text = file.read().split("\n")
+    random.shuffle(text)
+    entries2x = entries * 2
+    text = "\n".join(text[:entries2x])
+    instr_output.write(text)
+
+print(f"Total entries: {entries}, no_robot entries: {entries2x}")
 
 # # Shuffle results
 # random.shuffle(results)
