@@ -58,7 +58,7 @@ with open('public-datasets/no_robots/output.train_sft.jsonl', 'r') as file:
     text = "\n".join(text[:entries2x])
     instr_output.write(text)
 
-print(f"Total entries: {entries}, no_robot entries: {entries2x}")
+print(f"Private entries: {entries}, no_robot entries: {entries2x}")
 
 # # Shuffle results
 # random.shuffle(results)

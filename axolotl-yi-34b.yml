@@ -31,7 +31,7 @@ adapter: qlora
 lora_model_dir:
 
 sequence_len: 4096
-sample_packing: true
+sample_packing: false
 pad_to_sequence_len: true
 
 lora_r: 64
@@ -40,7 +40,7 @@ lora_dropout: 0.0
 lora_target_modules:
 lora_target_linear: true
 lora_fan_in_fan_out:
-noisy_embedding_alpha: 5
+# noisy_embedding_alpha: 5
 
 wandb_project:
 wandb_entity:

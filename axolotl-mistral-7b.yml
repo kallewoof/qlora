@@ -45,7 +45,7 @@ lora_dropout: 0.0
 lora_target_modules:
 lora_target_linear: true
 lora_fan_in_fan_out:
-noisy_embedding_alpha: 5
+# noisy_embedding_alpha: 5 # TEMP removed as axolotl is broken
 
 wandb_project:
 wandb_entity:
