@@ -54,7 +54,7 @@ for filename in os.listdir(dataset_dir):
 with open('public-datasets/no_robots/output.train_sft.jsonl', 'r') as file:
     text = file.read().split("\n")
     random.shuffle(text)
-    entries2x = entries * 2
+    entries2x = entries * 1 # we use 1x for now
     text = "\n".join(text[:entries2x])
     instr_output.write(text)
 

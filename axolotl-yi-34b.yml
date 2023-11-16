@@ -8,7 +8,7 @@ is_llama_derived_model: true
 load_in_8bit: false
 load_in_4bit: true
 strict: false
-device_map: auto
+# device_map: auto
 
 datasets:
   - path: prepared-dataset.jsonl
@@ -35,7 +35,7 @@ sample_packing: false
 pad_to_sequence_len: true
 
 lora_r: 64
-lora_alpha: 32
+lora_alpha: 128
 lora_dropout: 0.0
 lora_target_modules:
 lora_target_linear: true
@@ -71,10 +71,10 @@ xformers_attention:
 flash_attention: true
 safe_serialization: true
 
-warmup_steps: 5
+warmup_steps: 10
 eval_steps: 32
 eval_table_size:
-save_steps: 32
+save_steps: 64
 debug:
 deepspeed:
 weight_decay: 0.0
