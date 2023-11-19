@@ -51,10 +51,11 @@ for filename in os.listdir(dataset_dir):
             entries += 1
 
 # Include a shuffled count of 2x the entries from the no_robots dataset
+# From the fixed-up version
 with open('public-datasets/no_robots/output.train_sft.jsonl', 'r') as file:
     text = file.read().split("\n")
     random.shuffle(text)
-    entries2x = entries * 1 # we use 1x for now
+    entries2x = entries // 2
     text = "\n".join(text[:entries2x])
     instr_output.write(text)
 

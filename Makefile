@@ -42,7 +42,7 @@ axolotl_bin:
 	rm -f curr-model
 	ln -s base-models/llama2-yi-34b curr-model
 	./writelog.sh yi-34b
-	python -m axolotl.cli.train ./axolotl-yi-34b.yml | tee tlogs/latest/accelerate.log
+	accelerate launch --mixed_precision bf16 -m axolotl.cli.train ./axolotl-yi-34b.yml | tee tlogs/latest/accelerate.log
 	./posttrainlog.sh yi-34b
 
 70b-layered-256: dataset axolotl_bin
@@ -118,7 +118,7 @@ cabb-eval-70b: cabb_eval_dataset axolotl_bin
 derivative-yi-models/%: axolotl_bin FORCE
 	rm -f curr-model
 	ln -s $@ curr-model
-	python -m axolotl.cli.merge_lora axolotl-yi-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-yi-lora --load_in_8bit=False --load_in_4bit=False
+	python -m axolotl.cli.merge_lora axolotl-yi-$(shell echo $@ | rev | cut -c -3 | rev).yml --lora_model_dir=./curr-yi-lora --load_in_8bit=False --load_in_4bit=False --flash_attention=False
 
 derivative-models/%: axolotl_bin FORCE
 	rm -f curr-model

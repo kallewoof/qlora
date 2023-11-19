@@ -49,8 +49,8 @@ wandb_run_id:
 wandb_log_model:
 
 gradient_accumulation_steps: 1
-micro_batch_size: 2
-num_epochs: 2
+micro_batch_size: 1
+num_epochs: 4
 optimizer: adamw_bnb_8bit
 lr_scheduler: constant_with_warmup
 learning_rate: 0.000055
@@ -72,9 +72,9 @@ flash_attention: true
 safe_serialization: true
 
 warmup_steps: 20
-eval_steps: 128
+eval_steps: 64
 eval_table_size:
-save_steps: 128
+save_steps: 64
 debug:
 deepspeed:
 weight_decay: 0.0
