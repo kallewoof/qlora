@@ -5,6 +5,44 @@ import os
 import json
 import re
 import random
+from transformers import AutoTokenizer
+
+def quickfmt(e):
+    e = json.loads(e)
+    if "input" in e:
+        return """### Instruction: {instruction}
+
+### Input: {input}
+
+### Response: {output}""".format(instruction=e["instruction"], input=e["input"], output=e["output"])
+    else:
+        return """### Instruction: {instruction}
+
+### Response: {output}""".format(instruction=e["instruction"], output=e["output"])
+
+eos = "</s>" # default
+
+tokenizer = AutoTokenizer.from_pretrained("./curr-model", trust_remote_code=True)
+# Hard coded EOS? args.tokenizer + "/fixed-eos.txt" exists?
+if os.path.exists("./curr-model/fixed-eos.txt"):
+    with open("./curr-model/fixed-eos.txt", "r") as file:
+        eos = file.read()
+else:
+    # Try to derive from tokenizer_config.json
+    # {
+    #     "add_bos_token": true,
+    #     "add_eos_token": false,
+    #     "eos_token": {
+    #         "__type": "AddedToken",
+    #         "content": "</s>",
+    # ...
+    #     },
+    # ...
+    tokcfg = json.read("./curr-model/tokenizer_config.json")
+    if tokcfg["add_eos_token"]:
+        eos = tokcfg["eos_token"]["content"]
+
+print(f"EOS token: {eos}")
 
 # Get the directory of the current file
 curr_dir = os.path.dirname(os.path.realpath(__file__))
@@ -41,6 +79,7 @@ for filename in os.listdir(dataset_dir):
             # Skip empty stories
             if story == "":
                 continue
+            assert len(tokenizer.tokenize(story)) > 455, "Story too short (" + str(len(tokenizer.tokenize(story))) + "): " + story
             # Replace existing triple newlines with double newlines
             story = story.replace("\n\n\n", "\n\n")
             # Replace 4+ dots with 3 dots
@@ -50,16 +89,40 @@ for filename in os.listdir(dataset_dir):
             results.append(story)
             entries += 1
 
-# Include a shuffled count of 2x the entries from the no_robots dataset
-# From the fixed-up version
-with open('public-datasets/no_robots/output.train_sft.jsonl', 'r') as file:
+# Include instruction sets
+# - we include the entire camelv set as is
+extentries = 0
+tinyentries = 0
+with open('public-datasets/camelv/camelv.jsonl', 'r') as file:
+    text = file.read()
+    # Reject tiny entries
+    for entry in text.split("\n"):
+        if len(entry.strip()) == 0: continue
+        if len(tokenizer.tokenize(quickfmt(entry))) < 456:
+            tinyentries += 1
+            continue
+        instr_output.write(entry + "\n")
+        extentries += 1
+
+# Include a shuffled count of 1x the entries from the oasst1 dataset
+with open('public-datasets/oasst1/oasst1-train.jsonl', 'r') as file:
     text = file.read().split("\n")
     random.shuffle(text)
-    entries2x = entries // 2
-    text = "\n".join(text[:entries2x])
-    instr_output.write(text)
+    entries2x = entries
+    # Read and add entries until we have the desired amount
+    included = 0
+    for entry in text:
+        if len(entry.strip()) == 0: continue
+        if len(tokenizer.tokenize(quickfmt(entry))) < 456:
+            tinyentries += 1
+            continue
+        instr_output.write(entry + "\n")
+        included += 1
+        extentries += 1
+        if included >= entries2x:
+            break
 
-print(f"Private entries: {entries}, no_robot entries: {entries2x}")
+print(f"Private entries: {entries}, external entries (oasst1, camelv): {extentries}, tiny entries (skipped): {tinyentries}")
 
 # # Shuffle results
 # random.shuffle(results)
