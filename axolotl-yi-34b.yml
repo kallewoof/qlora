@@ -74,7 +74,7 @@ flash_attention: true
 safe_serialization: true
 
 warmup_steps: 10
-eval_steps: 32
+eval_steps: 64
 eval_table_size:
 save_steps: 64
 debug:
